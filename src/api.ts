@@ -12,6 +12,8 @@ import type { ChatTransport } from './transport.ts'
 export interface ApiDeps {
   store: ChatStore
   transport: ChatTransport
+  /** On-demand model-backed tagging; absent only in tests that do not exercise it. */
+  tagger?: { tag(): Promise<{ tagged: number }> }
   /** On-demand WeChat bridge manager; absent only in tests that do not exercise it. */
   wechat?: { ensure(): Promise<unknown> }
   /** Listening web-server port, used for the same-origin check. */
@@ -166,6 +168,12 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
         writeJson(res, 200, { result: 'stored', ...view(selectedTopic ?? topics[0]?.id) })
         return
       }
+      if (path === 'chat/tag' && req.method === 'POST') {
+        if (!deps.tagger) throw new NotFound('Automatic tagging is not available')
+        const result = await deps.tagger.tag()
+        writeJson(res, 200, { tagged: result.tagged, ...view() })
+        return
+      }
       if (path === 'topics' && req.method === 'POST') {
         const body = await readBody(req)
         if (!isRecord(body) || typeof body.name !== 'string') throw new Error('A topic name is required')
@@ -195,7 +203,7 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
       writeJson(res, 404, { error: 'Unknown operation' })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      const status = error instanceof NotFound ? 404 : /required|Invalid|limited|must be|not JSON|exceeds|too many|already exists/iu.test(message) ? 400 : 500
+      const status = error instanceof NotFound ? 404 : /required|Invalid|limited|must be|not JSON|exceeds|too many|already exists|at least one topic/iu.test(message) ? 400 : 500
       writeJson(res, status, { error: message })
     }
   }

@@ -26,6 +26,12 @@ export type SuperChatKey =
   | 'openTopic'
   | 'removeTopic'
   | 'tagPlaceholder'
+  | 'autoTag'
+  | 'autoTagHint'
+  | 'autoTagRunning'
+  | 'autoTagNoTopics'
+  | 'autoTagDone'
+  | 'autoTagNone'
   | 'modeSuperagent'
   | 'modeSession'
   | 'chatWechat'
@@ -79,6 +85,12 @@ export const en: Record<SuperChatKey, string> = {
   openTopic: 'Open this topic',
   removeTopic: 'Remove topic',
   tagPlaceholder: 'Add a topic…',
+  autoTag: 'Auto-tag',
+  autoTagHint: 'Use the model to label untagged messages with existing topics; existing tags are kept',
+  autoTagRunning: 'Tagging…',
+  autoTagNoTopics: 'Create a topic first to auto-tag messages',
+  autoTagDone: 'Tagged {count} messages',
+  autoTagNone: 'No messages needed tagging',
   modeSuperagent: 'Superagent handles this chat; topics are dispatch cues',
   modeSession: 'Standalone Session (Superagent unavailable)',
   chatWechat: 'WeChat access',
@@ -131,6 +143,12 @@ export const zh: Record<SuperChatKey, string> = {
   openTopic: '打开该主题',
   removeTopic: '移除主题',
   tagPlaceholder: '添加主题…',
+  autoTag: '自动打标签',
+  autoTagHint: '用模型判断未打标签的消息，套用已有主题；已有标签不会改动',
+  autoTagRunning: '正在判断…',
+  autoTagNoTopics: '先创建主题才能自动打标签',
+  autoTagDone: '已为 {count} 条消息打上标签',
+  autoTagNone: '没有需要打标签的消息',
   modeSuperagent: '由 Superagent 接单；主题只是分发线索',
   modeSession: '独立 Session（Superagent 不可用）',
   chatWechat: '微信远程接入',

@@ -113,4 +113,50 @@ describe('SQLite chat store', () => {
     expect(messages[0]?.id).toBe('m3')
     expect(store.hasMessage('m0')).toBe(false)
   })
+
+  it('tags only untagged messages with existing topics and inherits agent replies', () => {
+    const { store } = open()
+    const at = '2026-01-01T00:00:00.000Z'
+    const design = store.ensureTopic('Design', at)
+    store.appendUser({ id: 'u1', text: 'design request', at, tags: [], via: 'panel' })
+    store.appendAgent({ id: 'a1', text: 'working on it', at, tags: [] })
+    store.appendAgent({ id: 'a2', text: 'done', at, tags: [] })
+    store.appendUser({ id: 'u2', text: 'already tagged', at, tags: [design.id] })
+    store.appendAgent({ id: 'a3', text: 'reply without tags', at, tags: [] })
+    store.appendUser({ id: 'u3', text: 'hello', at, tags: [] })
+
+    const tagged = store.applyTagAssignments([
+      { id: 'u1', topics: ['Design'] },
+      { id: 'u2', topics: ['Design'] },
+      { id: 'u3', topics: ['Not a topic'] },
+      { id: 'missing', topics: ['Design'] },
+    ])
+
+    expect(tagged).toBe(4)
+    expect(store.messages()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'u1', tags: [design.id] }),
+      expect.objectContaining({ id: 'a1', tags: [design.id] }),
+      expect.objectContaining({ id: 'a2', tags: [design.id] }),
+      expect.objectContaining({ id: 'a3', tags: [design.id] }),
+      expect.objectContaining({ id: 'u3', tags: [] }),
+    ]))
+    expect(store.topicByName('Not a topic')).toBeUndefined()
+  })
+
+  it('inherits tags for existing replies without a model answer', () => {
+    const { store } = open()
+    const at = '2026-01-01T00:00:00.000Z'
+    const design = store.ensureTopic('Design', at)
+    store.appendUser({ id: 'u1', text: 'tagged request', at, tags: [design.id] })
+    store.appendAgent({ id: 'a1', text: 'reply', at, tags: [] })
+    store.appendUser({ id: 'u2', text: 'second request', at, tags: [] })
+    store.appendAgent({ id: 'a2', text: 'reply again', at, tags: [] })
+    expect(store.applyTagAssignments([])).toBe(1)
+    expect(store.messages().map(message => [message.id, message.tags])).toEqual([
+      ['u1', [design.id]],
+      ['a1', [design.id]],
+      ['u2', []],
+      ['a2', []],
+    ])
+  })
 })

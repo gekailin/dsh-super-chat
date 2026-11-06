@@ -13,6 +13,7 @@
 | `src/session.ts` | host | superagent 不可用时的单个兜底 DSH Session（`super-chat-general`）。 |
 | `src/transport.ts` | host | `ChatTransportRouter`：按当前可用性在 superagent 和兜底 Session 之间选择。 |
 | `src/superagent.ts` | host | 核心 `super-chat` Source、主题 dispatch、Channel/Thread context，以及仅内存中的 chat-only Setup 补丁。 |
+| `src/tagger.ts` | host | 按需用 profile 默认模型给已有消息判断主题；只补空标签，agent 回复继承标签。 |
 | `src/wechat-bridge.ts` | host | 微信桥的按需生命周期：探测/复用外部桥，或 spawn `wechat/src/service.mjs`；只停止自己启动的进程。 |
 | `src/api.ts` | host | `/super-chat/api/*`：请求校验、同源守卫、主题解析和消息存储。 |
 | `src/monkey.ts` | host | 从 `sessionController.list` 中过滤 `super-chat-*` Session。 |
@@ -91,6 +92,10 @@ ChatTransportRouter
 - 提示文本同样带主题线索；assistant 消息和失败回合写回消息流，并继承最后一条用户消息的标签。
 - 兜底不会为每个主题建 Session，也不会生成工单；它只是保证没有 prototype 时聊天仍可用。
 
+### 自动打标签
+
+通用聊天右上角的「自动打标签」按需运行：只处理最近 `TAG_WINDOW`（即 `VIEW_LIMIT`，200）条消息里还没有标签的用户消息，让 profile 的默认模型从**已有主题**中选择标签；不创建新主题，也不覆盖已有标签。模型通过公开的 `llm` 服务直接调用（模型路由取自 `agentDefaultModel`），不创建额外 Session，也不给模型任何工具。每次最多发送 `TAG_WINDOW` 条消息、每条正文截断到 1000 字符，90 秒超时；输出不是合法 JSON 时重试一次，仍失败则保持原样并在面板显示错误。标签写入后，未打标签的 agent 回复继承最近的用户消息标签；这批写入和继承在同一个事务里完成，因此主题计数和视图始终一致。
+
 ## HTTP 契约
 
 所有请求要求 `x-super-chat-request: 1`，`Host` 必须匹配监听地址（或 loopback 写法），外来 `Origin` 被拒绝。POST body 为 JSON，限制 64 KiB。
@@ -100,6 +105,7 @@ ChatTransportRouter
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
@@ -108,6 +114,7 @@ ChatTransportRouter
 - `tags` 是主题名称数组；服务端解析并创建缺失主题，消息里存主题 id。
 - `topic` 是当前视图 id，用于返回同视图的消息；不是标签。
 - 重复 `clientId` 返回 `duplicate`，不会再次投递。
+- `chat/tag` 只给未打标签的消息补上已有主题；`tagged` 是本次新增标签的消息数（含继承标签的回复）。
 - `mode` 为 `superagent` 或 `session`；`busy` 表示当前视图有未结束的工单或 Session 回合。
 
 ## 微信桥

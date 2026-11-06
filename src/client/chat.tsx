@@ -79,6 +79,8 @@ export function ChatPanel({ t }: { t: T }) {
   const [tagDraft, setTagDraft] = useState('')
   const [newTopic, setNewTopic] = useState<string>()
   const [error, setError] = useState<string>()
+  const [tagging, setTagging] = useState(false)
+  const [tagNote, setTagNote] = useState<string>()
   const [offline, setOffline] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
@@ -86,6 +88,7 @@ export function ChatPanel({ t }: { t: T }) {
   const drag = useRef<{ x: number; width: number }>()
   const end = useRef<HTMLDivElement>(null)
   const latest = useRef(0)
+  const topicRef = useRef(topicId)
   const lastMessage = useRef<string>()
 
   const selectedTopic = view.topic
@@ -96,6 +99,7 @@ export function ChatPanel({ t }: { t: T }) {
     try {
       const result = await ask<ChatView>('/chat' + (topic ? '?topic=' + encodeURIComponent(topic) : ''))
       if (request !== latest.current) return
+      topicRef.current = result.topic?.id
       setTopicId(result.topic?.id)
       setView(result)
       setLoaded(true)
@@ -106,6 +110,7 @@ export function ChatPanel({ t }: { t: T }) {
       if (request !== latest.current) return
       if (failure instanceof ChatError && failure.status === 404 && topic) {
         forget(ACTIVE_TOPIC)
+        topicRef.current = undefined
         setTopicId(undefined)
         return
       }
@@ -132,9 +137,11 @@ export function ChatPanel({ t }: { t: T }) {
     if (next === topicId) return
     setLoaded(false)
     setError(undefined)
+    setTagNote(undefined)
     setTags([])
     setTagDraft('')
     setNewTopic(undefined)
+    topicRef.current = next
     setTopicId(next)
     if (next) store(ACTIVE_TOPIC, next)
     else forget(ACTIVE_TOPIC)
@@ -176,7 +183,7 @@ export function ChatPanel({ t }: { t: T }) {
     event.preventDefault()
     const text = draft.trim()
     if (!text || sending) return
-    setSending(true); setError(undefined)
+    setSending(true); setError(undefined); setTagNote(undefined)
     // Include a tag the user typed but has not yet committed with Enter.
     const tagsToSend = mergeTagNames(selectedTopic?.name, [...extraTags, ...splitTags(tagDraft)])
     try {
@@ -194,6 +201,19 @@ export function ChatPanel({ t }: { t: T }) {
       setDraft(''); setTags([]); setTagDraft(''); forget(DRAFT_KEY)
       setOffline(false)
     } catch (failure) { setError(errorText(failure)) } finally { setSending(false) }
+  }
+  const autoTag = async () => {
+    if (tagging || topicRef.current !== undefined) return
+    setTagging(true); setError(undefined); setTagNote(undefined)
+    try {
+      const result = await ask<ChatView & { tagged: number }>('/chat/tag', { method: 'POST', body: '{}' })
+      // A topic selected while the model was running owns the view now; polling will refresh it.
+      if (topicRef.current !== undefined) return
+      setView(result)
+      setLoaded(true)
+      setOffline(false)
+      setTagNote(result.tagged > 0 ? t('autoTagDone', { count: result.tagged }) : t('autoTagNone'))
+    } catch (failure) { if (topicRef.current === undefined) setError(errorText(failure)) } finally { setTagging(false) }
   }
   const stop = async () => {
     if (cancelling) return
@@ -263,12 +283,20 @@ export function ChatPanel({ t }: { t: T }) {
           <p className="chat-subtitle">{view.mode === 'superagent' ? t('modeSuperagent') : t('modeSession')}</p>
         </div>
         <div className="chat-head-actions">
+          {!selectedTopic && <button type="button" className="chat-button chat-auto-tag" onClick={() => void autoTag()}
+            disabled={tagging || view.topics.length === 0}
+            aria-label={tagging ? t('autoTagRunning') : t('autoTag')}
+            aria-busy={tagging || undefined}
+            title={view.topics.length === 0 ? t('autoTagNoTopics') : t('autoTagHint')}>
+            <Icon name="tag" size={14} /> <span className="chat-auto-tag-label">{tagging ? t('autoTagRunning') : t('autoTag')}</span>
+          </button>}
           {view.busy && <button type="button" className="chat-button chat-stop" onClick={() => void stop()} disabled={cancelling}
             title={t('stopHint')}><Icon name="stop" size={14} /> {t('stop')}</button>}
         </div>
       </header>
       {offline && <p className="chat-error" role="status">{t('connectionFailed')}</p>}
       {error && <p className="chat-error" role="alert">{error}</p>}
+      {tagNote && <p className="chat-note" role="status">{tagNote}</p>}
       <div className="chat-messages" role="log" aria-live="polite">
         {!loaded ? <p className="chat-hint">{t('loading')}</p>
           : view.messages.length === 0

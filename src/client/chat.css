@@ -62,8 +62,11 @@ button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color
 .chat-stop { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .chat-hint { margin: 0; padding: 8px 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-tertiary); }
 .chat-error { margin: 0; padding: 8px clamp(16px, 3vw, 32px) 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-state-error-primary); }
+.chat-note { margin: 0; padding: 8px clamp(16px, 3vw, 32px) 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
 @container (max-width: 720px) {
   .chat-message { max-width: 92%; }
+  /* The header keeps the action reachable as an icon-only control in a narrow panel. */
+  .chat-auto-tag-label { display: none; }
 }
 /* The WeChat access entry sits at the bottom of the topic list. */
 .chat-sidebar-foot { flex: none; padding-top: 6px; border-top: 0.5px solid var(--dsw-alias-border-l3); }

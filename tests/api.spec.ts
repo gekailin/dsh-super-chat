@@ -17,11 +17,12 @@ describe('Super Chat HTTP API', () => {
   const cancel = vi.fn<(topicId?: string) => Promise<boolean>>(async () => true)
   const transport: ChatTransport = { mode: () => 'superagent', deliver, busy, cancel }
   const ensureBridge = vi.fn(async () => 'started')
-  let deps: { store: ChatStore; transport: ChatTransport; wechat?: { ensure(): Promise<unknown> }; port: number; host: string }
+  const tag = vi.fn(async () => ({ tagged: 2 }))
+  let deps: { store: ChatStore; transport: ChatTransport; tagger?: { tag(): Promise<{ tagged: number }> }; wechat?: { ensure(): Promise<unknown> }; port: number; host: string }
 
   beforeAll(async () => {
     store.load()
-    deps = { store, transport, wechat: { ensure: ensureBridge }, port: 0, host: '127.0.0.1' }
+    deps = { store, transport, tagger: { tag }, wechat: { ensure: ensureBridge }, port: 0, host: '127.0.0.1' }
     server = createServer(createApi(deps))
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
@@ -100,6 +101,20 @@ describe('Super Chat HTTP API', () => {
     const busyResponse = await call('/super-chat/api/chat?topic=' + design.id)
     expect(await busyResponse.json()).toMatchObject({ busy: true })
     busy.mockReturnValue(false)
+  })
+
+  it('runs auto-tagging on demand and reports the count with the refreshed view', async () => {
+    const response = await call('/super-chat/api/chat/tag', { method: 'POST', body: JSON.stringify({}) })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { tagged: number; messages: unknown[]; topics: unknown[]; mode: string }
+    expect(body.tagged).toBe(2)
+    expect(body.mode).toBe('superagent')
+    expect(body.messages.length).toBeGreaterThan(0)
+    expect(tag).toHaveBeenCalledTimes(1)
+
+    tag.mockRejectedValueOnce(new Error('Create at least one topic before tagging existing messages'))
+    const rejected = await call('/super-chat/api/chat/tag', { method: 'POST', body: JSON.stringify({}) })
+    expect(rejected.status).toBe(400)
   })
 
   it('creates, renames and validates topics', async () => {

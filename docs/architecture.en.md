@@ -13,6 +13,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/session.ts` | host | The single fallback DSH Session (`super-chat-general`) used when superagent is unavailable. |
 | `src/transport.ts` | host | `ChatTransportRouter`: chooses superagent or the fallback Session per operation. |
 | `src/superagent.ts` | host | The core `super-chat` Source, topic dispatch, Channel/Thread context, and the memory-only chat-only Setup patch. |
+| `src/tagger.ts` | host | On-demand topic judgement for existing messages through the profile default model; only empty tags are filled, and agent replies inherit them. |
 | `src/wechat-bridge.ts` | host | On-demand WeChat bridge lifecycle: reuse a running bridge or spawn `wechat/src/service.mjs`; stop only the child it started. |
 | `src/api.ts` | host | `/super-chat/api/*`: validation, same-origin guard, topic resolution and message storage. |
 | `src/monkey.ts` | host | Filters `super-chat-*` Sessions out of `sessionController.list`. |
@@ -91,6 +92,10 @@ ChatTransportRouter
 - Its prompt also carries topic cues; assistant messages and failed turns are written back to the stream and inherit the last user message's tags.
 - The fallback creates no Session per topic and no Tickets; it only keeps chat usable without the prototype.
 
+### Auto-tagging
+
+The **Auto-tag** action at the top of the general chat runs on demand. It handles only untagged user messages among the most recent `TAG_WINDOW` (`VIEW_LIMIT`, 200) messages and lets the profile's default model choose among **existing topics**; it creates no topics and overwrites no tags. The model is called directly through the public `llm` service, with the route from `agentDefaultModel`, so no extra Session is created and the model receives no tools. A run sends at most `TAG_WINDOW` (`VIEW_LIMIT`) messages with each text truncated to 1000 characters and gives up after 90 seconds; a reply that is not valid JSON is retried once, and a second failure leaves the stream untouched and reports an error in the panel. After tags are written, untagged agent replies inherit the tags of the nearest preceding user message. Those writes and the inheritance share one transaction, so topic counts and views stay consistent.
+
 ## HTTP contract
 
 All requests require `x-super-chat-request: 1`; `Host` must match the listening address (or a loopback spelling), and a foreign `Origin` is rejected. POST bodies are JSON and limited to 64 KiB.
@@ -100,6 +105,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
@@ -108,6 +114,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 - `tags` is an array of topic names; the server resolves and creates missing topics and stores topic ids on the message.
 - `topic` is the selected view id used to return the same view; it is not a tag.
 - A duplicate `clientId` returns `duplicate` and is not delivered again.
+- `chat/tag` fills existing topics only on untagged messages; `tagged` counts the messages that gained tags, including replies that inherited them.
 - `mode` is `superagent` or `session`; `busy` means the selected view has an open Ticket or a running fallback turn.
 
 ## WeChat bridge
