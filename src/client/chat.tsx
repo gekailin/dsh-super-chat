@@ -38,6 +38,8 @@ async function ask<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const errorText = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure)
+const isComposing = (event: KeyboardEvent): boolean =>
+  event.nativeEvent.isComposing || event.keyCode === 229
 const stored = (key: string): string | undefined => {
   try { return window.localStorage.getItem(key) ?? undefined } catch { return undefined }
 }
@@ -171,6 +173,7 @@ export function ChatPanel({ t }: { t: T }) {
     setTags(previous => previous.filter(item => !sameTopicName(item, name)))
   }
   const tagKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposing(event)) return
     if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
       event.preventDefault()
       addTags(tagDraft)
@@ -200,6 +203,8 @@ export function ChatPanel({ t }: { t: T }) {
     setSending(true); setError(undefined); setTagNote(undefined)
     // Include a tag the user typed but has not yet committed with Enter.
     const tagsToSend = mergeTagNames(selectedTopic?.name, [...extraTags, ...splitTags(tagDraft)])
+    const viewAtStart = topicRef.current
+    const request = ++latest.current
     try {
       const result = await ask<ChatView & { result: string }>('/chat', {
         method: 'POST',
@@ -207,25 +212,36 @@ export function ChatPanel({ t }: { t: T }) {
           text,
           tags: tagsToSend,
           clientId: globalThis.crypto?.randomUUID?.(),
-          ...(topicId && topicId !== UNTAGGED ? { topic: topicId } : {}),
+          ...(viewAtStart && viewAtStart !== UNTAGGED ? { topic: viewAtStart } : {}),
           via: 'panel',
         }),
       })
-      // The server returns the first tag's topic view; the untagged view needs the whole stream.
-      if (topicId === UNTAGGED && topicRef.current === UNTAGGED) await load(UNTAGGED)
-      else setView(result)
       setDraft(''); setTags([]); setTagDraft(''); forget(DRAFT_KEY)
       setOffline(false)
+      if (request !== latest.current || topicRef.current !== viewAtStart) return
+      // The server returns the first tag's topic view; the untagged view needs the whole stream.
+      if (viewAtStart === UNTAGGED) {
+        await load(UNTAGGED)
+        return
+      }
+      const active = result.topic?.id
+      topicRef.current = active
+      setTopicId(active)
+      setView(result)
+      setLoaded(true)
+      if (active) store(ACTIVE_TOPIC, active)
+      else forget(ACTIVE_TOPIC)
     } catch (failure) { setError(errorText(failure)) } finally { setSending(false) }
   }
   const autoTag = async () => {
     if (tagging || !autoTagAllowed(topicRef.current)) return
     setEditing(undefined)
     setTagging(true); setError(undefined); setTagNote(undefined)
+    const request = ++latest.current
     try {
       const result = await ask<ChatView & { tagged: number }>('/chat/tag', { method: 'POST', body: '{}' })
       // A topic selected while the model was running owns the view now; polling will refresh it.
-      if (!autoTagAllowed(topicRef.current)) return
+      if (request !== latest.current || !autoTagAllowed(topicRef.current)) return
       setView(result)
       setLoaded(true)
       setOffline(false)
@@ -250,6 +266,7 @@ export function ChatPanel({ t }: { t: T }) {
       : current)
   }
   const editKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposing(event)) return
     if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
       event.preventDefault()
       addEditTags(editing?.draft ?? '')
@@ -269,13 +286,14 @@ export function ChatPanel({ t }: { t: T }) {
     const names = mergeTagNames(undefined, [...editing.tags, ...splitTags(editing.draft)])
     const viewAtStart = topicRef.current
     const topicField = viewAtStart && viewAtStart !== UNTAGGED ? { topic: viewAtStart } : {}
+    const request = ++latest.current
     try {
       const result = await ask<ChatView & { result: string }>('/chat/tags', {
         method: 'POST',
         body: JSON.stringify({ id: editing.id, tags: names, ...topicField }),
       })
       // A topic selected while the save was in flight owns the view now; polling will refresh it.
-      if (topicRef.current !== viewAtStart) return
+      if (request !== latest.current || topicRef.current !== viewAtStart) return
       setView(result)
       setEditing(current => current && current.id === editing.id ? undefined : current)
       setOffline(false)
@@ -286,14 +304,18 @@ export function ChatPanel({ t }: { t: T }) {
   const stop = async () => {
     if (cancelling) return
     setCancelling(true); setError(undefined)
+    const viewAtStart = topicRef.current
+    const request = ++latest.current
     try {
       const result = await ask<ChatView & { cancelled: boolean }>('/chat/cancel', {
-        method: 'POST', body: JSON.stringify(topicId && topicId !== UNTAGGED ? { topic: topicId } : {}),
+        method: 'POST', body: JSON.stringify(viewAtStart && viewAtStart !== UNTAGGED ? { topic: viewAtStart } : {}),
       })
+      if (request !== latest.current || topicRef.current !== viewAtStart) return
       setView(result)
-    } catch (failure) { setError(errorText(failure)) } finally { setCancelling(false) }
+    } catch (failure) { if (topicRef.current === viewAtStart) setError(errorText(failure)) } finally { setCancelling(false) }
   }
   const sendKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isComposing(event)) return
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() }
   }
 
@@ -314,7 +336,8 @@ export function ChatPanel({ t }: { t: T }) {
         <Icon name="plus" size={14} /> {t('newTopic')}
       </button>
       {newTopic !== undefined && <form className="chat-topic-create" onSubmit={event => void createTopic(event)}>
-        <input className="chat-topic-input" autoFocus value={newTopic} onChange={event => setNewTopic(event.target.value)}
+        <input className="chat-topic-input" autoFocus maxLength={60} value={newTopic} onChange={event => setNewTopic(event.target.value)}
+          onKeyDown={event => { if (!isComposing(event) && event.key === 'Escape') { event.preventDefault(); setNewTopic(undefined) } }}
           placeholder={t('topicPlaceholder')} aria-label={t('topicPlaceholder')} />
       </form>}
       <nav className="chat-topic-list" aria-label={t('topics')}>

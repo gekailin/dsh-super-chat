@@ -155,3 +155,51 @@ it('edits and saves tags on a past message', async () => {
   expect(view.container.querySelector('.chat-message-tags')?.textContent).not.toContain('Design')
   view.dispose()
 })
+
+it('syncs topicId when sending a tagged message from All messages and ignores IME composition Enter', async () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const calls: { url: string; init?: RequestInit }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url: String(url), ...(init ? { init } : {}) })
+    if (init?.method === 'POST' && String(url).endsWith('/chat')) {
+      return Response.json({ result: 'stored', ...topic })
+    }
+    return Response.json(new URL(String(url), 'http://127.0.0.1').searchParams.get('topic') ? topic : general)
+  }))
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => { root.render(<ChatPanel t={t} />) })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  const textarea = container.querySelector('.chat-input') as HTMLTextAreaElement
+  await type(textarea, 'composing text')
+  await act(async () => {
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+  })
+  expect(calls.some(call => call.init?.method === 'POST' && call.url.endsWith('/chat'))).toBe(false)
+
+  const tagInput = container.querySelector('.chat-tags .chat-tag-input') as HTMLInputElement
+  await type(tagInput, 'Design')
+  await act(async () => {
+    tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+  })
+  expect(tagInput.value).toBe('Design')
+
+  await act(async () => {
+    tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: false, bubbles: true }))
+  })
+  expect(tagInput.value).toBe('')
+
+  await act(async () => { (container.querySelector('button.chat-primary') as HTMLButtonElement).click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  expect(container.querySelector('.chat-title')?.textContent).toBe('Design')
+  const designRow = [...container.querySelectorAll<HTMLButtonElement>('.chat-topic-row')]
+    .find(row => row.textContent?.includes('Design'))!
+  expect(designRow.getAttribute('data-active')).toBe('true')
+  expect(designRow.getAttribute('aria-current')).toBe('page')
+
+  act(() => root.unmount())
+  container.remove()
+})
