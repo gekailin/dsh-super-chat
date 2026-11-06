@@ -6,10 +6,12 @@ export type SuperChatKey =
   | 'panelTitle'
   | 'panelEntry'
   | 'generalChat'
+  | 'untagged'
   | 'topics'
   | 'newTopic'
   | 'topicPlaceholder'
   | 'emptyGeneral'
+  | 'emptyUntagged'
   | 'emptyTopic'
   | 'placeholder'
   | 'send'
@@ -25,6 +27,10 @@ export type SuperChatKey =
   | 'close'
   | 'openTopic'
   | 'removeTopic'
+  | 'editTags'
+  | 'removeTag'
+  | 'save'
+  | 'cancel'
   | 'tagPlaceholder'
   | 'autoTag'
   | 'autoTagHint'
@@ -64,11 +70,13 @@ export const en: Record<SuperChatKey, string> = {
   lang: 'en',
   panelTitle: 'Super Chat',
   panelEntry: 'Super Chat',
-  generalChat: 'General chat',
+  generalChat: 'All messages',
+  untagged: '<No topic>',
   topics: 'Topics',
   newTopic: 'New topic',
   topicPlaceholder: 'Topic name',
   emptyGeneral: 'No messages yet. Tell Superagent what you need.',
+  emptyUntagged: 'No untagged messages.',
   emptyTopic: 'No messages in this topic yet.',
   placeholder: 'Message Superagent…',
   send: 'Send',
@@ -84,6 +92,10 @@ export const en: Record<SuperChatKey, string> = {
   close: 'Close',
   openTopic: 'Open this topic',
   removeTopic: 'Remove topic',
+  editTags: 'Edit tags',
+  removeTag: 'Remove tag',
+  save: 'Save',
+  cancel: 'Cancel',
   tagPlaceholder: 'Add a topic…',
   autoTag: 'Auto-tag',
   autoTagHint: 'Use the model to label untagged messages with existing topics; existing tags are kept',
@@ -122,11 +134,13 @@ export const zh: Record<SuperChatKey, string> = {
   lang: 'zh',
   panelTitle: 'Super Chat',
   panelEntry: 'Super Chat',
-  generalChat: '通用聊天',
+  generalChat: '全部消息',
+  untagged: '<无主题>',
   topics: '主题',
   newTopic: '新建主题',
   topicPlaceholder: '主题名称',
   emptyGeneral: '还没有消息。直接告诉 Superagent 你要做什么。',
+  emptyUntagged: '没有未打标签的消息。',
   emptyTopic: '这个主题还没有消息。',
   placeholder: '给 Superagent 发消息…',
   send: '发送',
@@ -142,6 +156,10 @@ export const zh: Record<SuperChatKey, string> = {
   close: '关闭',
   openTopic: '打开该主题',
   removeTopic: '移除主题',
+  editTags: '编辑标签',
+  removeTag: '移除标签',
+  save: '保存',
+  cancel: '取消',
   tagPlaceholder: '添加主题…',
   autoTag: '自动打标签',
   autoTagHint: '用模型判断未打标签的消息，套用已有主题；已有标签不会改动',

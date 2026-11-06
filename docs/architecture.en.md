@@ -9,7 +9,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | File | Runtime | Responsibility |
 | --- | --- | --- |
 | `src/index.ts` | host | Reads configuration, opens SQLite, mounts the superagent Source, the fallback Session, the HTTP API and the list patch. |
-| `src/store.ts` | host | `chat.sqlite`: messages, topics, message-topic links, indexes, and one-time legacy `chat.json` migration. |
+| `src/store.ts` | host | `chat.sqlite`: messages, topics, message-topic links, indexes, one-time legacy `chat.json` migration, and manual replacement of one message's tags. |
 | `src/session.ts` | host | The single fallback DSH Session (`super-chat-general`) used when superagent is unavailable. |
 | `src/transport.ts` | host | `ChatTransportRouter`: chooses superagent or the fallback Session per operation. |
 | `src/superagent.ts` | host | The core `super-chat` Source, topic dispatch, Channel/Thread context, and the memory-only chat-only Setup patch. |
@@ -19,7 +19,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/monkey.ts` | host | Filters `super-chat-*` Sessions out of `sessionController.list`. |
 | `src/protocol.ts` | both | Shared ids, limits, message/topic shapes and text helpers. |
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
-| `src/client/chat.tsx` | browser | General chat, topic views, tag input, new topics, stop and polling. |
+| `src/client/chat.tsx` | browser | All messages, topic views, the `<No topic>` filter, tag input, new topics, per-message tag editing, stop and polling. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
 | `src/client/wechat.tsx` | browser | WeChat access entry and scan/status/sign-out window backed by the local bridge on `127.0.0.1:8790`. |
 
@@ -58,7 +58,7 @@ CREATE INDEX message_topic_topic ON message_topic(topic_id, message_id);
 - There is one message stream; topics are tags on messages, not separate conversations. One message may carry several topics and appears in several topic views.
 - Message ids are globally unique and deduplicate retries. At most `MESSAGE_LIMIT` (1000) messages are kept; the oldest are trimmed.
 - Topic names are case-insensitive and unique; at most `TOPIC_LIMIT` (200) topics.
-- A topic view filters by `message_topic.topic_id`; the general chat reads the whole stream ordered by `message.seq`.
+- A topic view filters by `message_topic.topic_id`; All messages reads the whole stream ordered by `message.seq`.
 - An old `chat.json` is imported when the database is empty: v1 conversations are flattened into the general stream; after a successful import the old file is renamed `chat.json.imported-<timestamp>`. An unreadable file is renamed `.corrupt-<timestamp>` and does not block startup.
 - SQLite uses WAL; one profile has exactly one writing process.
 
@@ -92,9 +92,17 @@ ChatTransportRouter
 - Its prompt also carries topic cues; assistant messages and failed turns are written back to the stream and inherit the last user message's tags.
 - The fallback creates no Session per topic and no Tickets; it only keeps chat usable without the prototype.
 
+### All messages and `<No topic>`
+
+The panel's main view is **All messages**, which reads the whole chat stream. The sidebar's **`<No topic>`** entry is neither a topic nor a separate storage or dispatch partition: the client filters the currently fetched messages down to those without tags, so it needs no new endpoint and changes no topic list, Trigger or dispatch. Untagged messages still use `super-chat:general` for Superagent to decide.
+
 ### Auto-tagging
 
-The **Auto-tag** action at the top of the general chat runs on demand. It handles only untagged user messages among the most recent `TAG_WINDOW` (`VIEW_LIMIT`, 200) messages and lets the profile's default model choose among **existing topics**; it creates no topics and overwrites no tags. The model is called directly through the public `llm` service, with the route from `agentDefaultModel`, so no extra Session is created and the model receives no tools. A run sends at most `TAG_WINDOW` (`VIEW_LIMIT`) messages with each text truncated to 1000 characters and gives up after 90 seconds; a reply that is not valid JSON is retried once, and a second failure leaves the stream untouched and reports an error in the panel. After tags are written, untagged agent replies inherit the tags of the nearest preceding user message. Those writes and the inheritance share one transaction, so topic counts and views stay consistent.
+The **Auto-tag** action at the top of the All messages view runs on demand. It handles only untagged user messages among the most recent `TAG_WINDOW` (`VIEW_LIMIT`, 200) messages and lets the profile's default model choose among **existing topics**; it creates no topics and overwrites no tags. The model is called directly through the public `llm` service, with the route from `agentDefaultModel`, so no extra Session is created and the model receives no tools. A run sends at most `TAG_WINDOW` (`VIEW_LIMIT`) messages with each text truncated to 1000 characters and gives up after 90 seconds; a reply that is not valid JSON is retried once, and a second failure leaves the stream untouched and reports an error in the panel. After tags are written, untagged agent replies inherit the tags of the nearest preceding user message. Those writes and the inheritance share one transaction, so topic counts and views stay consistent.
+
+### Manual tag editing
+
+Every message's tag row has an **Edit tags** action. It removes existing tags one by one and adds names typed into the input; saving replaces that message's tags only, and a new name creates a topic. Unlike auto-tagging, a manual edit does not make agent replies inherit tags and does not dispatch work or create messages. Clearing every tag returns the message to the untagged state, so a later auto-tag run can handle it again. The replacement happens in one transaction.
 
 ## HTTP contract
 
@@ -106,6 +114,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
@@ -115,6 +124,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 - `topic` is the selected view id used to return the same view; it is not a tag.
 - A duplicate `clientId` returns `duplicate` and is not delivered again.
 - `chat/tag` fills existing topics only on untagged messages; `tagged` counts the messages that gained tags, including replies that inherited them.
+- `chat/tags` replaces one existing message's tags with the submitted set; names resolve and create missing topics, and an empty array clears the tags.
 - `mode` is `superagent` or `session`; `busy` means the selected view has an open Ticket or a running fallback turn.
 
 ## WeChat bridge

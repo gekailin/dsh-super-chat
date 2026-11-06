@@ -174,6 +174,16 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
         writeJson(res, 200, { tagged: result.tagged, ...view() })
         return
       }
+      if (path === 'chat/tags' && req.method === 'POST') {
+        const body = await readBody(req)
+        if (!isRecord(body) || typeof body.id !== 'string' || !body.id.trim()) throw new Error('Invalid message id')
+        if (!Array.isArray(body.tags)) throw new Error('tags must be an array')
+        const selectedTopic = selected(body)
+        const updated = deps.store.setMessageTags(body.id, topicNames(body.tags), new Date().toISOString())
+        if (!updated) throw new NotFound('Unknown message')
+        writeJson(res, 200, { result: 'updated', ...view(selectedTopic) })
+        return
+      }
       if (path === 'topics' && req.method === 'POST') {
         const body = await readBody(req)
         if (!isRecord(body) || typeof body.name !== 'string') throw new Error('A topic name is required')

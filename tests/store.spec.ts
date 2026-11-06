@@ -114,6 +114,22 @@ describe('SQLite chat store', () => {
     expect(store.hasMessage('m0')).toBe(false)
   })
 
+  it('replaces one message tags manually, creates names and can clear them', () => {
+    const { store } = open()
+    const at = '2026-01-01T00:00:00.000Z'
+    const design = store.ensureTopic('Design', at)
+    store.appendUser({ id: 'u1', text: 'old request', at, tags: [design.id] })
+    store.appendAgent({ id: 'a1', text: 'reply', at, tags: [] })
+
+    expect(store.setMessageTags('u1', ['Urgent', 'Design'], at)).toBe(true)
+    const urgent = store.topicByName('Urgent')!
+    expect(store.messages()[0]?.tags).toEqual([urgent.id, design.id])
+    expect(store.setMessageTags('u1', [], at)).toBe(true)
+    expect(store.messages()[0]?.tags).toEqual([])
+    expect(store.setMessageTags('missing', ['Design'], at)).toBe(false)
+    expect(store.topicByName('Design')?.id).toBe(design.id)
+  })
+
   it('tags only untagged messages with existing topics and inherits agent replies', () => {
     const { store } = open()
     const at = '2026-01-01T00:00:00.000Z'

@@ -17,7 +17,10 @@ const design = { id: 'tp-d', name: 'Design', createdAt: at, updatedAt: at, messa
 const urgent = { id: 'tp-u', name: 'Urgent', createdAt: at, updatedAt: at, messageCount: 1, busy: false }
 const general = {
   topics: [design, urgent],
-  messages: [{ id: 'm1', role: 'user', text: 'general request', at, tags: [design.id] }],
+  messages: [
+    { id: 'm1', role: 'user', text: 'general request', at, tags: [design.id] },
+    { id: 'm3', role: 'user', text: 'untagged question', at, tags: [] },
+  ],
   mode: 'superagent',
   busy: false,
 }
@@ -40,7 +43,16 @@ async function render(initial: typeof general = general) {
   const calls: { url: string; init?: RequestInit }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url: String(url), ...(init ? { init } : {}) })
-    if (String(url).includes('/chat/tag')) return Response.json({ tagged: 2, ...initial })
+    if (String(url).endsWith('/chat/tag')) return Response.json({ tagged: 2, ...initial })
+    if (String(url).endsWith('/chat/tags')) {
+      const body = JSON.parse(String(init?.body)) as { id: string; tags: string[] }
+      const byName: Record<string, { id: string }> = { Design: design, Urgent: urgent }
+      const tags = body.tags.map(name => byName[name]?.id).filter((id): id is string => typeof id === 'string')
+      return Response.json({
+        result: 'updated', ...initial,
+        messages: initial.messages.map(message => message.id === body.id ? { ...message, tags } : message),
+      })
+    }
     if (String(url).includes('/topics')) return Response.json({ topic: urgent, topics: [design, urgent] })
     if (init?.method === 'POST') return Response.json({ result: 'stored', ...initial })
     return Response.json(new URL(String(url), 'http://127.0.0.1').searchParams.get('topic') ? topic : initial)
@@ -94,10 +106,52 @@ it('auto-tags from the general view and shows the result count', async () => {
   view.dispose()
 })
 
+it('shows All messages and a No topic view for untagged messages', async () => {
+  const view = await render()
+  const rows = [...view.container.querySelectorAll<HTMLButtonElement>('.chat-topic-row')]
+  expect(rows.map(row => row.textContent)).toEqual(expect.arrayContaining([
+    expect.stringContaining(zh.generalChat), expect.stringContaining(zh.untagged),
+  ]))
+  expect(view.container.querySelector('.chat-title')?.textContent).toBe(zh.generalChat)
+
+  const untaggedRow = rows.find(row => row.textContent?.includes(zh.untagged))!
+  await act(async () => { untaggedRow.click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  expect(view.container.querySelector('.chat-title')?.textContent).toBe(zh.untagged)
+  expect([...view.container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual(['untagged question'])
+  expect(view.calls.at(-1)?.url).not.toContain('?topic=')
+  view.dispose()
+})
+
 it('disables auto-tagging while no topic exists', async () => {
   const view = await render({ ...general, topics: [] })
   const button = view.container.querySelector<HTMLButtonElement>('.chat-auto-tag')
   expect(button?.disabled).toBe(true)
   expect(button?.title).toBe(zh.autoTagNoTopics)
+  view.dispose()
+})
+
+it('edits and saves tags on a past message', async () => {
+  const view = await render()
+  const edit = view.container.querySelector<HTMLButtonElement>('.chat-message-edit')
+  expect(edit).not.toBeNull()
+  await act(async () => { edit!.click() })
+
+  const remove = view.container.querySelector<HTMLButtonElement>('.chat-message-tags .chat-tag-remove')
+  expect(remove).not.toBeNull()
+  await act(async () => { remove!.click() })
+
+  const input = view.container.querySelector<HTMLInputElement>('.chat-tag-editor .chat-tag-input')!
+  await type(input, 'Urgent')
+  await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+  const save = view.container.querySelector<HTMLButtonElement>('.chat-tag-editor button[type="submit"]')!
+  await act(async () => { save.click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  const post = view.calls.find(call => call.init?.method === 'POST' && call.url.endsWith('/chat/tags'))
+  expect(JSON.parse(String(post?.init?.body))).toMatchObject({ id: 'm1', tags: ['Urgent'] })
+  expect(view.container.querySelector('.chat-message-tags')?.textContent).toContain('Urgent')
+  expect(view.container.querySelector('.chat-message-tags')?.textContent).not.toContain('Design')
   view.dispose()
 })
