@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>mock wx.qq.com</title>
+<pre id="log"></pre>
+<script>
+  // 模拟网页版微信的前端行为：init -> 长轮询 synccheck -> webwxsync
+  const BASE = '/cgi-bin/mmwebwx-bin';
+  const PT = 'MOCK_PASS_TICKET';
+  const BR = { Uin: 1000, Sid: 'MOCKSID', Skey: 'MOCKSKEY', DeviceID: 'MOCKDEV' };
+  const state = { syncKey: { Count: 1, List: [{ Key: 1, Val: 1 }] } };
+  const log = (s) => (document.getElementById('log').textContent += s + '\n');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function post(path, body) {
+    const u = new URL(BASE + path, location.origin);
+    u.searchParams.set('pass_ticket', PT);
+    const r = await fetch(u, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return r.json();
+  }
+
+  (async function main() {
+    const init = await post('/webwxinit?r=' + Date.now(), { BaseRequest: BR });
+    log('init ok: ' + init.User.NickName);
+    while (true) {
+      const r = await fetch(
+        BASE +
+          '/synccheck?r=' + Date.now() +
+          '&skey=MOCKSKEY&sid=MOCKSID&uin=1000&deviceid=MOCKDEV&synckey=1_1&_=' + Date.now()
+      );
+      const t = await r.text();
+      const sel = /selector:"(\d+)"/.exec(t)?.[1];
+      if (sel && sel !== '0') {
+        const s = await post('/webwxsync?sid=MOCKSID&skey=MOCKSKEY', {
+          BaseRequest: BR,
+          SyncKey: state.syncKey,
+          rr: 1,
+        });
+        state.syncKey = s.SyncKey;
+        for (const m of s.AddMsgList || []) log('msg: ' + m.FromUserName + ': ' + m.Content);
+      }
+      await sleep(200);
+    }
+  })();
+</script>

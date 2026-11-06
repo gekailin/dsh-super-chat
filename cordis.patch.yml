@@ -1,0 +1,10 @@
+# dsh-super-chat bundle layer: inserts the host plugin (the loopback chat API) and,
+# through dsh.client, the browser half (the Super Chat main panel and its sidebar entry).
+# The profile supplies the plugin configuration, for example:
+#
+#   - id: super-chat
+#     config:
+#       stateDir: /absolute/path/to/state
+- insert:
+    - id: super-chat
+      name: dsh-super-chat

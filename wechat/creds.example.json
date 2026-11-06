@@ -1,0 +1,10 @@
+{
+  "base": "https://wenjian.weixin.qq.com",
+  "appId": "wx_webfilehelper",
+  "cookie": "wxuin=1234567890; wxsid=AbCdEf123=; skey=@crypt_xxx; pass_ticket=xxxx==",
+  "uin": "1234567890",
+  "sid": "AbCdEf123=",
+  "skey": "@crypt_xxx",
+  "passTicket": "xxxx==",
+  "deviceid": "e123456789012345"
+}

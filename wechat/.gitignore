@@ -1,0 +1,6 @@
+creds.json
+state.json
+state.json.tmp
+.cache/
+node_modules/
+*.log
