@@ -75,4 +75,38 @@ describe('WechatBridge', () => {
     const missing = new WechatBridge({ stateDir, panelPort: 3099, packageRoot: emptyRoot, port: 9876, spawn: (() => child) as never, probe: async () => false })
     await expect(missing.ensure()).rejects.toThrow('WeChat bridge not found')
   })
+
+  it('keeps the bridge alive only when saved credentials exist and restarts after unexpected exit', async () => {
+    const { packageRoot, stateDir } = fixture()
+    let healthy = false
+    const children: ReturnType<typeof fakeChild>[] = []
+    const spawn = vi.fn(() => {
+      const child = fakeChild()
+      healthy = true
+      children.push(child)
+      return child
+    })
+    const probe = vi.fn(async () => healthy)
+    const bridge = new WechatBridge({ stateDir, panelPort: 3099, packageRoot, port: 9876, spawn: spawn as never, probe })
+
+    // Without credentials, keepAlive remains idle so a fresh install does not spawn the bridge at boot.
+    let dispose = bridge.keepAlive(30)
+    await new Promise(resolve => setTimeout(resolve, 80))
+    expect(spawn).not.toHaveBeenCalled()
+    dispose()
+
+    // Once credentials exist, keepAlive starts the bridge and recovers it if it exits unexpectedly.
+    mkdirSync(join(stateDir, 'wechat'), { recursive: true })
+    writeFileSync(join(stateDir, 'wechat', 'creds.json'), '{"uin":1000,"sid":"SID","passTicket":"TICKET"}')
+    dispose = bridge.keepAlive(30)
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1))
+
+    // Simulate an unexpected crash of the bridge process.
+    healthy = false
+    children[0]!.kill('SIGTERM')
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+
+    dispose()
+    await bridge.stop()
+  })
 })

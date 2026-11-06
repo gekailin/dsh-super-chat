@@ -56,6 +56,15 @@ await mock.inject({ from: '@me', to: 'filehelper', content: '收到：你好 age
 await sleep(600);
 assert.equal(mock.sent.length, 1, '不应产生二次回复');
 
+// synccheck 连续返回非 0 非致命 retcode（如 synckey 漂移）时，应自动重新 init 恢复同步
+const initsBefore = mock.inits;
+mock.setSyncRetcode('1103');
+await waitFor(() => mock.inits > initsBefore, 5000);
+mock.setSyncRetcode('0');
+await mock.inject({ from: '@me', to: 'filehelper', content: '恢复后消息' });
+await waitFor(() => mock.sent.length === 2);
+assert.equal(mock.sent[1].Msg.Content, '收到：恢复后消息');
+
 ac.abort();
 await mock.close();
 console.log('✅ e2e ok');

@@ -143,3 +143,31 @@ it('shows when the WeChat access service is unavailable', async () => {
   expect(entry.querySelector('.chat-wechat-entry-state')?.getAttribute('data-state')).toBe('unreachable')
   view.dispose()
 })
+
+it('automatically restarts a previously connected bridge when a status poll finds it down', async () => {
+  let bridgeUp = true
+  const calls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    calls.push(String(url))
+    if (String(url).endsWith('/super-chat/api/wechat/start')) {
+      bridgeUp = true
+      return Response.json({ ok: true, result: 'started' })
+    }
+    if (String(url).startsWith('http://127.0.0.1:8790')) {
+      if (!bridgeUp) throw new TypeError('Failed to fetch')
+      return Response.json({ loggedIn: true, nick: 'WeChat user', login: { phase: 'success' } })
+    }
+    return chatView()
+  }))
+  const view = await render(fixture(), { t })
+  const entry = view.container.querySelector('.chat-wechat-entry') as HTMLButtonElement
+  expect(entry.querySelector('.chat-wechat-entry-state')?.getAttribute('data-state')).toBe('connected')
+
+  // Bridge goes down (e.g. host restart); next focus/poll automatically calls /wechat/start and recovers.
+  bridgeUp = false
+  await act(async () => { window.dispatchEvent(new Event('focus')) })
+  for (let i = 0; i < 10; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(calls.some(url => url.endsWith('/super-chat/api/wechat/start'))).toBe(true)
+  expect(entry.querySelector('.chat-wechat-entry-state')?.getAttribute('data-state')).toBe('connected')
+  view.dispose()
+})

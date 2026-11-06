@@ -14,7 +14,7 @@
 | `src/transport.ts` | host | `ChatTransportRouter`：按当前可用性在 superagent 和兜底 Session 之间选择。 |
 | `src/superagent.ts` | host | 核心 `super-chat` Source、主题 dispatch、Channel/Thread context，以及仅内存中的 chat-only Setup 补丁。 |
 | `src/tagger.ts` | host | 按需用 profile 默认模型给已有消息判断主题；只补空标签，agent 回复继承标签。 |
-| `src/wechat-bridge.ts` | host | 微信桥的按需生命周期：探测/复用外部桥，或 spawn `wechat/src/service.mjs`；只停止自己启动的进程。 |
+| `src/wechat-bridge.ts` | host | 微信桥生命周期与保活：未登录时按需启动，已有登录凭据时自动恢复并巡检保活；探测/复用外部桥，只停止自己启动的进程。 |
 | `src/api.ts` | host | `/super-chat/api/*`：请求校验、同源守卫、主题解析和消息存储。 |
 | `src/monkey.ts` | host | 从 `sessionController.list` 中过滤 `super-chat-*` Session。 |
 | `src/protocol.ts` | both | 共享 id、上限、消息/主题形状和文本辅助函数。 |
@@ -129,7 +129,7 @@ ChatTransportRouter
 
 ## 微信桥
 
-`wechat/` 是独立的 Node.js 进程，默认使用通用聊天。`src/wechat-bridge.ts` 只在用户打开微信接入弹窗时按需启动它：先探测 `8790/health`，已有桥则复用；否则 spawn，并只停止自己启动的进程。登录态、游标和待发队列在 `stateDir/wechat/`，旧的手动 `wechat/creds.json` 只复制一次。
+`wechat/` 是独立的 Node.js 进程，默认使用通用聊天。`src/wechat-bridge.ts` 负责生命周期与保活：未保存登录凭据时只在用户打开微信接入弹窗时按需启动；一旦 `stateDir/wechat/creds.json` 存在，宿主加载和后台巡检会自动确保桥进程在线，异常退出或宿主重启后自动拉起，无需再次点击面板。每次启动前先探测 `8790/health`，已有桥则复用；否则 spawn，并只停止自己启动的进程。登录态、游标和待发队列在 `stateDir/wechat/`，旧的手动 `wechat/creds.json` 只复制一次。
 
 - 文本里的 `@主题` 被解析成主题名称，从正文移除后作为 `tags` 提交；多个 `@主题` 产生多个标签。
 - 单流轮询：桥读取 `GET /chat`，把游标之后的 agent 消息转发到微信；带标签的回复加 `「主题」` 前缀。

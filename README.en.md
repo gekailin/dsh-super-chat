@@ -120,7 +120,7 @@ When `dsh-superagent-prototype` is installed in the same profile, its runtime ex
 
 ## WeChat remote access (started on demand)
 
-`wechat/` is a separate Node.js bridge for WeChat's File Transfer Helper. **Opening the panel's WeChat access starts the bridge on demand**, so it does not need to be launched first; an already-running external bridge is reused. It defaults to the general chat: ordinary text goes there, and `@topic` tokens are extracted from the body as tags, for example:
+`wechat/` is a separate Node.js bridge for WeChat's File Transfer Helper. **Opening the panel's WeChat access starts the bridge on demand**, so it does not need to be launched first; while saved credentials (`stateDir/wechat/creds.json`) exist, the host also automatically resumes and keeps the bridge alive across restarts and background checks; an already-running external bridge is reused. It defaults to the general chat: ordinary text goes there, and `@topic` tokens are extracted from the body as tags, for example:
 
 ```
 帮我看下 @设计 这个页面

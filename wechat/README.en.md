@@ -4,7 +4,7 @@ The plugin's built-in WeChat bridge, started on demand, connecting WeChat's **Fi
 
 [简体中文](README.md) | English
 
-The module is a separate Node.js process on purpose: it holds the WeChat login credentials while the DSH profile restarts when its plugins or settings change. **Opening the panel's WeChat access starts it on demand**; an already-running external bridge is reused. Restarting DSH therefore does not require a new scan. The process talks to the plugin's chat API over loopback only.
+The module is a separate Node.js process on purpose: it holds the WeChat login credentials while the DSH profile restarts when its plugins or settings change. **Opening the panel's WeChat access starts it on demand**; while saved credentials exist, the host also automatically resumes and keeps the bridge alive across restarts and background checks; an already-running external bridge is reused. Restarting DSH therefore does not require a new scan. The process talks to the plugin's chat API over loopback only.
 
 The plugin-managed bridge keeps credentials, cursors and its outbox under `stateDir/wechat/`; an old manual `wechat/creds.json` is copied once. Run `run-superchat.sh` manually only for troubleshooting or when the bridge should stay resident independently of DSH.
 

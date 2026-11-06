@@ -13,7 +13,7 @@ function readBody(req) {
 }
 
 export async function startMock({ port = 0, host = '127.0.0.1' } = {}) {
-  const state = { queue: [], sent: [], logouts: [], msgId: 1000, val: 1, pollCount: 0 };
+  const state = { queue: [], sent: [], logouts: [], inits: 0, syncRetcode: '0', msgId: 1000, val: 1, pollCount: 0 };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://' + (req.headers.host || '127.0.0.1'));
@@ -81,6 +81,7 @@ export async function startMock({ port = 0, host = '127.0.0.1' } = {}) {
         return;
       }
       if (p.endsWith('/webwxinit')) {
+        state.inits++;
         return json({
           BaseResponse: { Ret: 0 },
           SyncKey: { Count: 1, List: [{ Key: 1, Val: 1 }] },
@@ -96,7 +97,7 @@ export async function startMock({ port = 0, host = '127.0.0.1' } = {}) {
       }
       if (p.endsWith('/synccheck')) {
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('window.synccheck={retcode:"0",selector:"' + (state.queue.length ? 2 : 0) + '"}');
+        res.end('window.synccheck={retcode:"' + state.syncRetcode + '",selector:"' + (state.queue.length ? 2 : 0) + '"}');
         return;
       }
       if (p.endsWith('/webwxsync')) {
@@ -130,6 +131,12 @@ export async function startMock({ port = 0, host = '127.0.0.1' } = {}) {
     },
     get logouts() {
       return state.logouts;
+    },
+    get inits() {
+      return state.inits;
+    },
+    setSyncRetcode(code) {
+      state.syncRetcode = String(code);
     },
     async inject(msg) {
       const r = await fetch('http://' + host + ':' + actualPort + '/_inject', {

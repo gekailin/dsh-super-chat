@@ -64,6 +64,8 @@ export function WechatIcon({ size = 16 }: { size?: number }) {
 
 export function WechatAccessButton({ t, onClick }: { t: T; onClick: () => void }) {
   const [indicator, setIndicator] = useState<WechatIndicator>('checking')
+  const hadBridge = useRef(false)
+  const startingBridge = useRef(false)
 
   useEffect(() => {
     let live = true
@@ -71,8 +73,23 @@ export function WechatAccessButton({ t, onClick }: { t: T; onClick: () => void }
       if (document.hidden) return
       try {
         const next = await bridge<WechatStatus>('/wechat/status')
+        hadBridge.current = true
         if (live) setIndicator(next.loggedIn ? 'connected' : 'logged-out')
       } catch {
+        // Recover a previously running bridge automatically without spawning one on a cold page load.
+        if (hadBridge.current && !startingBridge.current) {
+          startingBridge.current = true
+          try {
+            await startBridge()
+            const next = await bridge<WechatStatus>('/wechat/status')
+            if (live) setIndicator(next.loggedIn ? 'connected' : 'logged-out')
+            return
+          } catch {
+            // Fall through and mark unreachable until the next poll or click.
+          } finally {
+            startingBridge.current = false
+          }
+        }
         if (live) setIndicator('unreachable')
       }
     }
