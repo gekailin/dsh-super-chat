@@ -9,6 +9,7 @@ import STYLES from './chat.css?raw'
 
 const PREFIX = '/super-chat/api'
 const ACTIVE_TOPIC = 'super-chat-topic'
+const UNTAGGED = 'untagged'
 const DRAFT_KEY = 'super-chat-draft'
 const LAYOUT_KEY = 'super-chat-topic-width'
 const DEFAULT_WIDTH = 248
@@ -52,13 +53,15 @@ const readWidth = (): number => {
   return Number.isFinite(value) ? clampWidth(value) : DEFAULT_WIDTH
 }
 
-function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | 'tag' | 'x' | 'pencil'; size?: number }) {
+function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | 'tag' | 'tagOff' | 'x' | 'pencil'; size?: number }) {
   const path = name === 'chat'
     ? <><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" /><path d="M8 9h8M8 13h5" /></>
     : name === 'plus'
       ? <><path d="M12 5v14M5 12h14" /></>
       : name === 'tag'
         ? <><path d="M4 4h7l9 9-7 7-9-9z" /><circle cx="8" cy="8" r="1.4" /></>
+        : name === 'tagOff'
+          ? <><path d="M4 4h7l9 9-7 7-9-9z" /><circle cx="8" cy="8" r="1.4" /><path d="m3 3 18 18" /></>
         : name === 'stop'
           ? <><rect x="6" y="6" width="12" height="12" rx="2" /></>
           : name === 'x'
@@ -96,23 +99,29 @@ export function ChatPanel({ t }: { t: T }) {
   const lastMessage = useRef<string>()
 
   const selectedTopic = view.topic
+  const untaggedView = topicId === UNTAGGED
+  const shownMessages = untaggedView ? view.messages.filter(message => message.tags.length === 0) : view.messages
+  const title = untaggedView ? t('untagged') : selectedTopic?.name || t('generalChat')
   const extraTags = tags.filter(name => !selectedTopic || !sameTopicName(name, selectedTopic.name))
+  const autoTagAllowed = (value: string | undefined): boolean => value === undefined || value === UNTAGGED
 
   const load = useCallback(async (topic = topicId) => {
     const request = ++latest.current
+    const untagged = topic === UNTAGGED
     try {
-      const result = await ask<ChatView>('/chat' + (topic ? '?topic=' + encodeURIComponent(topic) : ''))
+      const result = await ask<ChatView>('/chat' + (!untagged && topic ? '?topic=' + encodeURIComponent(topic) : ''))
       if (request !== latest.current) return
-      topicRef.current = result.topic?.id
-      setTopicId(result.topic?.id)
+      const active = untagged ? UNTAGGED : result.topic?.id
+      topicRef.current = active
+      setTopicId(active)
       setView(result)
       setLoaded(true)
       setOffline(false)
-      if (result.topic) store(ACTIVE_TOPIC, result.topic.id)
+      if (active) store(ACTIVE_TOPIC, active)
       else forget(ACTIVE_TOPIC)
     } catch (failure) {
       if (request !== latest.current) return
-      if (failure instanceof ChatError && failure.status === 404 && topic) {
+      if (failure instanceof ChatError && failure.status === 404 && topic && topic !== UNTAGGED) {
         forget(ACTIVE_TOPIC)
         topicRef.current = undefined
         setTopicId(undefined)
@@ -198,28 +207,30 @@ export function ChatPanel({ t }: { t: T }) {
           text,
           tags: tagsToSend,
           clientId: globalThis.crypto?.randomUUID?.(),
-          ...(topicId ? { topic: topicId } : {}),
+          ...(topicId && topicId !== UNTAGGED ? { topic: topicId } : {}),
           via: 'panel',
         }),
       })
-      setView(result)
+      // The server returns the first tag's topic view; the untagged view needs the whole stream.
+      if (topicId === UNTAGGED && topicRef.current === UNTAGGED) await load(UNTAGGED)
+      else setView(result)
       setDraft(''); setTags([]); setTagDraft(''); forget(DRAFT_KEY)
       setOffline(false)
     } catch (failure) { setError(errorText(failure)) } finally { setSending(false) }
   }
   const autoTag = async () => {
-    if (tagging || topicRef.current !== undefined) return
+    if (tagging || !autoTagAllowed(topicRef.current)) return
     setEditing(undefined)
     setTagging(true); setError(undefined); setTagNote(undefined)
     try {
       const result = await ask<ChatView & { tagged: number }>('/chat/tag', { method: 'POST', body: '{}' })
       // A topic selected while the model was running owns the view now; polling will refresh it.
-      if (topicRef.current !== undefined) return
+      if (!autoTagAllowed(topicRef.current)) return
       setView(result)
       setLoaded(true)
       setOffline(false)
       setTagNote(result.tagged > 0 ? t('autoTagDone', { count: result.tagged }) : t('autoTagNone'))
-    } catch (failure) { if (topicRef.current === undefined) setError(errorText(failure)) } finally { setTagging(false) }
+    } catch (failure) { if (autoTagAllowed(topicRef.current)) setError(errorText(failure)) } finally { setTagging(false) }
   }
   const startEdit = (message: ChatMessage) => {
     setError(undefined)
@@ -257,10 +268,11 @@ export function ChatPanel({ t }: { t: T }) {
     setSavingTags(true); setError(undefined)
     const names = mergeTagNames(undefined, [...editing.tags, ...splitTags(editing.draft)])
     const viewAtStart = topicRef.current
+    const topicField = viewAtStart && viewAtStart !== UNTAGGED ? { topic: viewAtStart } : {}
     try {
       const result = await ask<ChatView & { result: string }>('/chat/tags', {
         method: 'POST',
-        body: JSON.stringify({ id: editing.id, tags: names, ...(viewAtStart ? { topic: viewAtStart } : {}) }),
+        body: JSON.stringify({ id: editing.id, tags: names, ...topicField }),
       })
       // A topic selected while the save was in flight owns the view now; polling will refresh it.
       if (topicRef.current !== viewAtStart) return
@@ -276,7 +288,7 @@ export function ChatPanel({ t }: { t: T }) {
     setCancelling(true); setError(undefined)
     try {
       const result = await ask<ChatView & { cancelled: boolean }>('/chat/cancel', {
-        method: 'POST', body: JSON.stringify(topicId ? { topic: topicId } : {}),
+        method: 'POST', body: JSON.stringify(topicId && topicId !== UNTAGGED ? { topic: topicId } : {}),
       })
       setView(result)
     } catch (failure) { setError(errorText(failure)) } finally { setCancelling(false) }
@@ -309,7 +321,13 @@ export function ChatPanel({ t }: { t: T }) {
         <button type="button" className="chat-topic-row" data-active={!topicId || undefined} onClick={() => selectTopic(undefined)}>
           <span className="chat-topic-icon"><Icon name="chat" size={14} /></span>
           <span className="chat-topic-name">{t('generalChat')}</span>
-          {view.busy && !selectedTopic && <span className="chat-busy" data-on role="img" aria-label={t('busy')} title={t('busy')} />}
+          {view.busy && topicId === undefined && <span className="chat-busy" data-on role="img" aria-label={t('busy')} title={t('busy')} />}
+        </button>
+        <button type="button" className="chat-topic-row" data-active={topicId === UNTAGGED || undefined}
+          onClick={() => selectTopic(UNTAGGED)} title={t('untagged')}>
+          <span className="chat-topic-icon"><Icon name="tagOff" size={14} /></span>
+          <span className="chat-topic-name">{t('untagged')}</span>
+          {view.busy && topicId === UNTAGGED && <span className="chat-busy" data-on role="img" aria-label={t('busy')} title={t('busy')} />}
         </button>
         {view.topics.map(topicRow)}
       </nav>
@@ -335,7 +353,7 @@ export function ChatPanel({ t }: { t: T }) {
     <section className="chat-main">
       <header className="chat-head">
         <div className="chat-head-text">
-          <h1 className="chat-title">{selectedTopic?.name || t('generalChat')}</h1>
+          <h1 className="chat-title">{title}</h1>
           <p className="chat-subtitle">{view.mode === 'superagent' ? t('modeSuperagent') : t('modeSession')}</p>
         </div>
         <div className="chat-head-actions">
@@ -355,9 +373,9 @@ export function ChatPanel({ t }: { t: T }) {
       {tagNote && <p className="chat-note" role="status">{tagNote}</p>}
       <div className="chat-messages" role="log" aria-live="polite">
         {!loaded ? <p className="chat-hint">{t('loading')}</p>
-          : view.messages.length === 0
-            ? <p className="chat-hint">{selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
-            : view.messages.map(message => {
+          : shownMessages.length === 0
+            ? <p className="chat-hint">{untaggedView ? t('emptyUntagged') : selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
+            : shownMessages.map(message => {
               const editingThis = editing !== undefined && editing.id === message.id
               return <article key={message.id} className="chat-message" data-role={message.role}
                 data-kind={message.kind || undefined}>

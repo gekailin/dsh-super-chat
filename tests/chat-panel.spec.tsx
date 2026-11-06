@@ -17,7 +17,10 @@ const design = { id: 'tp-d', name: 'Design', createdAt: at, updatedAt: at, messa
 const urgent = { id: 'tp-u', name: 'Urgent', createdAt: at, updatedAt: at, messageCount: 1, busy: false }
 const general = {
   topics: [design, urgent],
-  messages: [{ id: 'm1', role: 'user', text: 'general request', at, tags: [design.id] }],
+  messages: [
+    { id: 'm1', role: 'user', text: 'general request', at, tags: [design.id] },
+    { id: 'm3', role: 'user', text: 'untagged question', at, tags: [] },
+  ],
   mode: 'superagent',
   busy: false,
 }
@@ -100,6 +103,24 @@ it('auto-tags from the general view and shows the result count', async () => {
 
   expect(view.calls.some(call => call.init?.method === 'POST' && call.url.endsWith('/chat/tag'))).toBe(true)
   expect(view.container.querySelector('.chat-note')?.textContent).toBe('已为 2 条消息打上标签')
+  view.dispose()
+})
+
+it('shows All messages and a No topic view for untagged messages', async () => {
+  const view = await render()
+  const rows = [...view.container.querySelectorAll<HTMLButtonElement>('.chat-topic-row')]
+  expect(rows.map(row => row.textContent)).toEqual(expect.arrayContaining([
+    expect.stringContaining(zh.generalChat), expect.stringContaining(zh.untagged),
+  ]))
+  expect(view.container.querySelector('.chat-title')?.textContent).toBe(zh.generalChat)
+
+  const untaggedRow = rows.find(row => row.textContent?.includes(zh.untagged))!
+  await act(async () => { untaggedRow.click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  expect(view.container.querySelector('.chat-title')?.textContent).toBe(zh.untagged)
+  expect([...view.container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual(['untagged question'])
+  expect(view.calls.at(-1)?.url).not.toContain('?topic=')
   view.dispose()
 })
 

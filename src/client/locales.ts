@@ -6,10 +6,12 @@ export type SuperChatKey =
   | 'panelTitle'
   | 'panelEntry'
   | 'generalChat'
+  | 'untagged'
   | 'topics'
   | 'newTopic'
   | 'topicPlaceholder'
   | 'emptyGeneral'
+  | 'emptyUntagged'
   | 'emptyTopic'
   | 'placeholder'
   | 'send'
@@ -68,11 +70,13 @@ export const en: Record<SuperChatKey, string> = {
   lang: 'en',
   panelTitle: 'Super Chat',
   panelEntry: 'Super Chat',
-  generalChat: 'General chat',
+  generalChat: 'All messages',
+  untagged: '<No topic>',
   topics: 'Topics',
   newTopic: 'New topic',
   topicPlaceholder: 'Topic name',
   emptyGeneral: 'No messages yet. Tell Superagent what you need.',
+  emptyUntagged: 'No untagged messages.',
   emptyTopic: 'No messages in this topic yet.',
   placeholder: 'Message Superagent…',
   send: 'Send',
@@ -130,11 +134,13 @@ export const zh: Record<SuperChatKey, string> = {
   lang: 'zh',
   panelTitle: 'Super Chat',
   panelEntry: 'Super Chat',
-  generalChat: '通用聊天',
+  generalChat: '全部消息',
+  untagged: '<无主题>',
   topics: '主题',
   newTopic: '新建主题',
   topicPlaceholder: '主题名称',
   emptyGeneral: '还没有消息。直接告诉 Superagent 你要做什么。',
+  emptyUntagged: '没有未打标签的消息。',
   emptyTopic: '这个主题还没有消息。',
   placeholder: '给 Superagent 发消息…',
   send: '发送',

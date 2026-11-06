@@ -21,7 +21,8 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 
 ## Features
 
-- **General chat**: every message goes into one stream; there is no longer a Session per conversation.
+- **All messages**: every message goes into one stream; this is the panel's main view and replaces the former "General chat" label.
+- **<No topic> view**: shows only the messages in the current fetch window that carry no tags; it is a client-side filter and changes neither storage, dispatch nor the topic list.
 - **Topic views**: topics are tags on messages, not separate conversations. One message may carry several tags and appears in every matching view.
 - **Topics are dispatch cues**: for a tagged message the first tag becomes the `super-chat` dispatch thread; untagged messages go to `general` and Superagent decides. Tags never force the outcome.
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
