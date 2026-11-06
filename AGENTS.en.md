@@ -135,10 +135,10 @@ cd wechat && npm test
 
 ## WeChat bridge (wechat/)
 
-- It is part of the plugin's feature set but remains a separate process by design: **start it on demand only when the user opens the WeChat access dialog**, never at plugin load.
+- It is part of the plugin's feature set but remains a separate process by design: **before sign-in, start it on demand only when the user opens the WeChat access dialog** (never eagerly when no credentials exist); once saved `creds.json` exists, the host automatically resumes and keeps the bridge alive across restarts and background checks.
 - `src/wechat-bridge.ts` owns the lifecycle: probe `8790/health` and reuse an existing bridge; otherwise spawn `wechat/src/service.mjs` with `SUPERCHAT_URL` pointing at the current panel port; stop only the child this manager started, never an external bridge.
 - Credentials, cursors and the outbox live under `stateDir/wechat/`; an old manual `wechat/creds.json` is copied once. Never commit these files.
-- The bridge listens only on loopback `127.0.0.1:8790` and its tests use a mock WeChat backend. Do not merge it into the DSH process or start it eagerly at plugin load.
+- The bridge listens only on loopback `127.0.0.1:8790` and its tests use a mock WeChat backend. Do not merge it into the DSH process.
 
 ## Docs
 

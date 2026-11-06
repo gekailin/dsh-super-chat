@@ -14,7 +14,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/transport.ts` | host | `ChatTransportRouter`: chooses superagent or the fallback Session per operation. |
 | `src/superagent.ts` | host | The core `super-chat` Source, topic dispatch, Channel/Thread context, and the memory-only chat-only Setup patch. |
 | `src/tagger.ts` | host | On-demand topic judgement for existing messages through the profile default model; only empty tags are filled, and agent replies inherit them. |
-| `src/wechat-bridge.ts` | host | On-demand WeChat bridge lifecycle: reuse a running bridge or spawn `wechat/src/service.mjs`; stop only the child it started. |
+| `src/wechat-bridge.ts` | host | WeChat bridge lifecycle and keep-alive: starts on demand before sign-in, and automatically resumes and monitors the bridge while saved credentials exist; reuses an external bridge and stops only the child it started. |
 | `src/api.ts` | host | `/super-chat/api/*`: validation, same-origin guard, topic resolution and message storage. |
 | `src/monkey.ts` | host | Filters `super-chat-*` Sessions out of `sessionController.list`. |
 | `src/protocol.ts` | both | Shared ids, limits, message/topic shapes and text helpers. |
@@ -129,7 +129,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 
 ## WeChat bridge
 
-`wechat/` is a separate Node.js process defaulting to the general chat. `src/wechat-bridge.ts` starts it on demand only when the user opens the WeChat access dialog: it probes `8790/health` and reuses an existing bridge, otherwise spawns one, and stops only the child it started. Credentials, cursors and the outbox live under `stateDir/wechat/`; an old manual `wechat/creds.json` is copied once.
+`wechat/` is a separate Node.js process defaulting to the general chat. `src/wechat-bridge.ts` owns its lifecycle and keep-alive: before sign-in it starts on demand only when the user opens the WeChat access dialog; once `stateDir/wechat/creds.json` exists, host startup and background checks keep the bridge running and automatically recover it across host restarts or unexpected exits without waiting for a panel click. It probes `8790/health` and reuses an existing bridge, otherwise spawns one, and stops only the child it started. Credentials, cursors and the outbox live under `stateDir/wechat/`; an old manual `wechat/creds.json` is copied once.
 
 - `@topic` tokens are parsed as topic names, removed from the body, and submitted as `tags`; several tokens produce several tags.
 - Single-stream polling: the bridge reads `GET /chat` and forwards agent messages after its cursor to WeChat; tagged replies get a `「topic」` prefix.

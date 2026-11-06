@@ -36,9 +36,9 @@ export interface WechatBridgeOptions {
 export type BridgeStart = 'running' | 'started'
 
 /**
- * Starts the bridge only when a panel asks for it, reuses an already-running bridge (manual or
- * another plugin), and stops only the process this manager spawned. Credentials and state live
- * under stateDir so a plugin restart does not require another scan.
+ * Starts the bridge when needed, reuses an already-running bridge (manual or from a previous plugin
+ * instance), and stops only the process this manager spawned when requested. Credentials and state
+ * live under stateDir so a plugin restart does not require another scan.
  */
 export class WechatBridge {
   readonly port: number
@@ -48,6 +48,8 @@ export class WechatBridge {
   private readonly probe: (url: string) => Promise<boolean>
   private child?: ChildProcess
   private starting?: Promise<void>
+  private keepTimer?: ReturnType<typeof setInterval>
+  private stopped = false
 
   constructor(private readonly options: WechatBridgeOptions) {
     this.port = options.port ?? DEFAULT_PORT
@@ -55,6 +57,11 @@ export class WechatBridge {
     this.packageRoot = options.packageRoot ?? join(dirname(fileURLToPath(import.meta.url)), '..')
     this.spawnProcess = options.spawn ?? spawn
     this.probe = options.probe ?? defaultProbe
+  }
+
+  /** Whether saved WeChat login credentials exist in the state directory or legacy checkout. */
+  hasCredentials(): boolean {
+    return existsSync(join(this.dir, 'creds.json')) || existsSync(join(this.packageRoot, 'wechat', 'creds.json'))
   }
 
   /** Ensure the bridge is ready; an already healthy bridge is reported as running. */
@@ -65,8 +72,31 @@ export class WechatBridge {
     return 'started'
   }
 
+  /**
+   * Keep the bridge alive in the background while saved credentials exist, so profile restarts or
+   * unexpected bridge exits do not drop WeChat access until the user clicks the panel entry again.
+   */
+  keepAlive(intervalMs = 15_000): () => void {
+    this.stopped = false
+    const check = (): void => {
+      if (this.stopped || !this.hasCredentials()) return
+      void this.ensure().catch(() => { /* retried on next tick or explicit panel action */ })
+    }
+    check()
+    const timer = setInterval(check, intervalMs)
+    timer.unref?.()
+    this.keepTimer = timer
+    return () => {
+      this.stopped = true
+      if (this.keepTimer === timer) this.keepTimer = undefined
+      clearInterval(timer)
+    }
+  }
+
   /** Stop only the bridge process this manager started; an externally running bridge is reused, not killed. */
   async stop(): Promise<void> {
+    this.stopped = true
+    if (this.keepTimer) { clearInterval(this.keepTimer); this.keepTimer = undefined }
     const child = this.child
     this.child = undefined
     if (!child || child.exitCode !== null) return
@@ -102,10 +132,20 @@ export class WechatBridge {
         STATE_FILE: join(this.dir, 'state.json'),
         PORT: String(this.port),
       },
+      detached: true,
       stdio: 'ignore',
     })
+    child.unref?.()
     this.child = child
-    child.once('exit', () => { if (this.child === child) this.child = undefined })
+    child.once('exit', () => {
+      if (this.child === child) this.child = undefined
+      if (!this.stopped && this.hasCredentials()) {
+        const timer = setTimeout(() => {
+          if (!this.stopped && this.hasCredentials()) void this.ensure().catch(() => {})
+        }, 1_000)
+        timer.unref?.()
+      }
+    })
     const deadline = Date.now() + START_TIMEOUT_MS
     while (Date.now() < deadline) {
       if (await this.healthy()) return

@@ -8,6 +8,8 @@ export const UA =
 export const FILEHELPER_APPID = 'wx_webfilehelper';
 export const FILEHELPER_BASE = 'https://wenjian.weixin.qq.com';
 export const FILEHELPER_LOGIN = 'https://login.wx.qq.com';
+export const REQUEST_TIMEOUT_MS = 20_000;
+export const SYNCCHECK_TIMEOUT_MS = 45_000;
 
 export class WebWxError extends Error {
   constructor(message, code) {
@@ -86,7 +88,7 @@ export class WebWxClient {
     };
   }
 
-  async request(path, { method = 'GET', query, body, base, raw = false, signal } = {}) {
+  async request(path, { method = 'GET', query, body, base, raw = false, signal, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
     const url = new URL(path, base || this.creds.base);
     for (const [k, v] of Object.entries(query || {})) {
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
@@ -98,7 +100,9 @@ export class WebWxClient {
       payload = JSON.stringify(body);
     }
     this.log(method + ' ' + url.pathname);
-    const res = await fetch(url, { method, headers, body: payload, ...(signal ? { signal } : {}) });
+    const timeoutSignal = timeoutMs ? AbortSignal.timeout(timeoutMs) : null;
+    const reqSignal = signal && timeoutSignal ? AbortSignal.any([signal, timeoutSignal]) : (signal || timeoutSignal);
+    const res = await fetch(url, { method, headers, body: payload, ...(reqSignal ? { signal: reqSignal } : {}) });
     const text = await res.text();
     if (!res.ok) throw new WebWxError('HTTP ' + res.status + ' ' + url.pathname, res.status);
     if (raw) return text;
@@ -142,10 +146,12 @@ export class WebWxClient {
     });
   }
 
-  async syncCheck() {
+  async syncCheck({ signal } = {}) {
     const text = await this.request('/cgi-bin/mmwebwx-bin/synccheck', {
       base: this.syncBase,
       raw: true,
+      signal,
+      timeoutMs: SYNCCHECK_TIMEOUT_MS,
       query: {
         r: Date.now(),
         skey: this.creds.skey,
@@ -161,9 +167,10 @@ export class WebWxClient {
     return { retcode: m[1], selector: m[2] };
   }
 
-  async sync() {
+  async sync({ signal } = {}) {
     const r = await this.request('/cgi-bin/mmwebwx-bin/webwxsync', {
       method: 'POST',
+      signal,
       query: {
         sid: this.creds.sid,
         skey: this.creds.skey,
@@ -233,10 +240,11 @@ export class WebWxClient {
 
   async run({ signal, onMessage, onError } = {}) {
     let backoff = 1000;
+    let nonZeroCount = 0;
     while (!signal?.aborted) {
       let c;
       try {
-        c = await this.syncCheck();
+        c = await this.syncCheck({ signal });
       } catch (e) {
         if (signal?.aborted) return;
         onError?.(e);
@@ -251,14 +259,30 @@ export class WebWxClient {
           c.retcode
         );
       }
+      if (c.retcode === '1102') {
+        throw new WebWxError('微信登录态已过期，请重新扫码', c.retcode);
+      }
       if (c.retcode !== '0') {
+        nonZeroCount += 1;
+        // 连续返回异常 retcode（如 synckey 漂移）时尝试重新 init 刷新 syncKey；若凭证本身已失效则抛出结束会话。
+        if (nonZeroCount >= 3) {
+          nonZeroCount = 0;
+          try {
+            await this.init();
+            continue;
+          } catch (e) {
+            if (signal?.aborted) return;
+            throw new WebWxError('微信同步恢复失败: ' + e.message, e.code || c.retcode);
+          }
+        }
         await sleep(800);
         continue;
       }
+      nonZeroCount = 0;
       if (c.selector === '0') continue;
       let msgs;
       try {
-        msgs = await this.sync();
+        msgs = await this.sync({ signal });
       } catch (e) {
         if (signal?.aborted) return;
         onError?.(e);

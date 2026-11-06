@@ -69,7 +69,7 @@ export function apply(ctx: Context, config?: Config): void {
   })
   const transport = new ChatTransportRouter(superagent, session)
   const tagger = new AutoTagger(ctx, store, message => ctx.logger.warn('dsh-super-chat: %s', message))
-  // The bridge is started on demand by the WeChat access dialog; it is never started at plugin load.
+  // The bridge starts on demand from the WeChat dialog, and resumes/keeps alive when saved credentials exist.
   const wechat = new WechatBridge({ stateDir: options.stateDir, panelPort: ctx.webServer.port! })
 
   ctx.effect(() => session.start(), 'super-chat: fallback session')
@@ -77,7 +77,10 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.effect(() => hideChatSessions(ctx), 'super-chat: hidden sessions')
   ctx.effect(() => () => store.close(), 'super-chat: store')
   ctx.effect(() => () => { tagger.stop() }, 'super-chat: auto-tagger')
-  ctx.effect(() => () => { void wechat.stop() }, 'super-chat: wechat bridge')
+  ctx.effect(() => {
+    const disposeKeepAlive = wechat.keepAlive()
+    return () => { disposeKeepAlive(); void wechat.stop() }
+  }, 'super-chat: wechat bridge')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/super-chat',
