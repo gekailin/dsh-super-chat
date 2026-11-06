@@ -70,13 +70,32 @@ export class ChatStore {
     try {
       db = new DatabaseSync(this.file)
       db.exec(SCHEMA)
+      this.verify(db)
       return db
     } catch {
+      this.quarantine()
       try { db?.close() } catch { /* ignore */ }
-      try { renameSync(this.file, this.file + '.corrupt-' + Date.now()) } catch { /* replace it below */ }
+      this.quarantine()
       const fresh = new DatabaseSync(this.file)
       fresh.exec(SCHEMA)
       return fresh
+    }
+  }
+
+  /** Check that the database pages and expected schema columns are readable. */
+  private verify(db: DatabaseSync): void {
+    const check = db.prepare('PRAGMA quick_check(1)').get() as unknown as { quick_check?: string } | undefined
+    if (check?.quick_check !== 'ok') throw new Error('SQLite quick_check failed')
+    db.prepare('SELECT id, name, name_key, created_at FROM topic LIMIT 1').get()
+    db.prepare('SELECT seq, id, role, text, at, kind, via FROM message LIMIT 1').get()
+    db.prepare('SELECT message_id, topic_id, ordinal FROM message_topic LIMIT 1').get()
+  }
+
+  /** Move a damaged database and its WAL/SHM sidecars aside with a shared timestamp. */
+  private quarantine(): void {
+    const suffix = '.corrupt-' + Date.now()
+    for (const ext of ['', '-wal', '-shm']) {
+      try { renameSync(this.file + ext, this.file + ext + suffix) } catch { /* missing or unmovable */ }
     }
   }
 
@@ -169,7 +188,7 @@ export class ChatStore {
   }
 
   /** Find a topic by name, creating it when needed. */
-  ensureTopic(name: string, at: string): Topic {
+  ensureTopic(name: string, at: string, protectedIds?: ReadonlySet<string>): Topic {
     const clean = cleanTopicName(name)
     if (!clean) throw new Error('A topic name is required')
     const found = this.topicByName(clean)
@@ -178,7 +197,9 @@ export class ChatStore {
     if (count >= TOPIC_LIMIT) {
       const used = this.db.prepare('SELECT DISTINCT topic_id FROM message_topic').all() as unknown as { topic_id: string }[]
       const usedIds = new Set(used.map(row => row.topic_id))
-      const free = this.topics().find(topic => !usedIds.has(topic.id))
+      if (protectedIds) for (const id of protectedIds) usedIds.add(id)
+      const candidates = this.db.prepare('SELECT id FROM topic ORDER BY created_at ASC, rowid ASC').all() as unknown as { id: string }[]
+      const free = candidates.find(topic => !usedIds.has(topic.id))
       if (!free) throw new Error('Too many topics')
       this.db.prepare('DELETE FROM topic WHERE id = ?').run(free.id)
     }
@@ -188,16 +209,25 @@ export class ChatStore {
   }
 
   /** Resolve tag names to topics, creating missing topics in input order. */
-  resolveTags(names: readonly string[], at: string): Topic[] {
-    const resolved: Topic[] = []
-    for (const name of names) {
-      if (resolved.length >= MAX_TAGS) break
-      const clean = cleanTopicName(name)
-      if (!clean) continue
-      const topic = this.ensureTopic(clean, at)
-      if (!resolved.some(item => item.id === topic.id)) resolved.push(topic)
+  resolveTags(names: readonly string[], at: string, ownTransaction = true): Topic[] {
+    if (ownTransaction) this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const resolved: Topic[] = []
+      const protectedIds = new Set<string>()
+      for (const name of names) {
+        if (resolved.length >= MAX_TAGS) break
+        const clean = cleanTopicName(name)
+        if (!clean) continue
+        const topic = this.ensureTopic(clean, at, protectedIds)
+        protectedIds.add(topic.id)
+        if (!resolved.some(item => item.id === topic.id)) resolved.push(topic)
+      }
+      if (ownTransaction) this.db.exec('COMMIT')
+      return resolved
+    } catch (error) {
+      if (ownTransaction) this.db.exec('ROLLBACK')
+      throw error
     }
-    return resolved
   }
 
   /** Rename a topic; returns false for an unknown id, an empty name or a duplicate name. */
@@ -261,8 +291,8 @@ export class ChatStore {
       tags: [...new Set(input.tags.filter(validTopicId))].slice(0, MAX_TAGS),
       ...(input.via ? { via: input.via } : {}),
     }
-    this.insertMessage(message)
-    return { message, created: true }
+    const storedTags = this.insertMessage(message)
+    return { message: { ...message, tags: storedTags }, created: true }
   }
 
   /** Append an agent message once by id; returns whether it was new. */
@@ -290,7 +320,7 @@ export class ChatStore {
         this.db.exec('ROLLBACK')
         return false
       }
-      const topics = this.resolveTags(names, at)
+      const topics = this.resolveTags(names, at, false)
       this.db.prepare('DELETE FROM message_topic WHERE message_id = ?').run(id)
       const insert = this.db.prepare('INSERT OR IGNORE INTO message_topic (message_id, topic_id, ordinal) VALUES (?, ?, ?)')
       topics.forEach((topic, ordinal) => insert.run(id, topic.id, ordinal))
@@ -370,17 +400,22 @@ export class ChatStore {
   }
 
   /** Insert one message and its tags in a transaction, then trim the stream. */
-  private insertMessage(message: ChatMessage, ownTransaction = true): void {
+  private insertMessage(message: ChatMessage, ownTransaction = true): string[] {
     if (ownTransaction) this.db.exec('BEGIN IMMEDIATE')
     try {
       this.db.prepare('INSERT INTO message (id, role, text, at, kind, via) VALUES (?, ?, ?, ?, ?, ?)')
         .run(message.id, message.role, message.text, message.at, message.kind ?? null, message.via ?? null)
       const tag = this.db.prepare('INSERT OR IGNORE INTO message_topic (message_id, topic_id, ordinal) VALUES (?, ?, ?)')
-      message.tags.forEach((topicId, index) => {
-        if (this.db.prepare('SELECT 1 AS found FROM topic WHERE id = ?').get(topicId) !== undefined) tag.run(message.id, topicId, index)
+      const storedTags: string[] = []
+      message.tags.forEach(topicId => {
+        if (this.db.prepare('SELECT 1 AS found FROM topic WHERE id = ?').get(topicId) !== undefined) {
+          tag.run(message.id, topicId, storedTags.length)
+          storedTags.push(topicId)
+        }
       })
       this.db.prepare('DELETE FROM message WHERE seq <= (SELECT seq FROM message ORDER BY seq DESC LIMIT 1 OFFSET ?)').run(MESSAGE_LIMIT)
       if (ownTransaction) this.db.exec('COMMIT')
+      return storedTags
     } catch (error) {
       if (ownTransaction) this.db.exec('ROLLBACK')
       throw error

@@ -45,6 +45,7 @@ export class GeneralSession implements ChatTransport {
   private opening?: Promise<string>
   private starting = false
   private tags: string[] = []
+  private readonly tagQueue: string[][] = []
   private readonly sessionIdWanted = sessionOfGeneral()
 
   constructor(
@@ -65,13 +66,15 @@ export class GeneralSession implements ChatTransport {
   mode(): 'session' { return 'session' }
 
   busy(topicId?: string): boolean {
-    if (topicId) return false
+    if (topicId && !this.tags.includes(topicId) && !this.tagQueue.some(tags => tags.includes(topicId))) return false
     const agent = this.ctx.agents.get(this.sessionIdWanted as SessionId)
     return agent ? agent.status === 'running' : this.starting
   }
 
   async deliver(message: ChatMessage, topics: Topic[]): Promise<void> {
-    this.tags = [...message.tags]
+    const entryTags = [...message.tags]
+    this.tags = entryTags
+    this.tagQueue.push(entryTags)
     this.starting = true
     try {
       const sessionId = await this.ensureSession()
@@ -82,6 +85,8 @@ export class GeneralSession implements ChatTransport {
         content: [{ type: 'text', text: cueText(message, topics) }],
       }, AbortSignal.timeout(PROMPT_TIMEOUT_MS))
     } catch (error) {
+      const idx = this.tagQueue.lastIndexOf(entryTags)
+      if (idx >= 0) this.tagQueue.splice(idx, 1)
       this.starting = false
       // The user message is already stored; keep the failure visible in the same topic view.
       this.store.appendAgent({
@@ -95,9 +100,10 @@ export class GeneralSession implements ChatTransport {
   }
 
   async cancel(topicId?: string): Promise<boolean> {
-    if (topicId) return false
+    if (topicId && !this.tags.includes(topicId) && !this.tagQueue.some(tags => tags.includes(topicId))) return false
     const agent = this.ctx.agents.get(this.sessionIdWanted as SessionId)
     if (!agent) return false
+    this.tagQueue.length = 0
     this.ctx.sessionController.cancel({ sessionId: this.sessionIdWanted as SessionId })
     return true
   }
@@ -148,6 +154,7 @@ export class GeneralSession implements ChatTransport {
 
   private onSessionEvent(sessionId: string, event: SessionEvent): void {
     if (!this.owns(sessionId)) return
+    const turnTags = this.tagQueue[0] ?? this.tags
     if (event.type === 'assistant/message') {
       const text = messageText(event.data.message)
       if (text) {
@@ -155,19 +162,22 @@ export class GeneralSession implements ChatTransport {
           id: 'a-' + sessionId + '-' + event.seq,
           text,
           at: new Date(event.time).toISOString(),
-          tags: this.tags,
+          tags: turnTags,
         })
       }
       return
     }
-    if (event.type === 'turn/end' && event.data.reason.kind === 'error') {
-      this.store.appendAgent({
-        id: 'e-' + sessionId + '-' + event.seq,
-        text: 'The agent turn failed: ' + failureText(event.data.reason.error.message),
-        at: new Date(event.time).toISOString(),
-        tags: this.tags,
-        kind: 'error',
-      })
+    if (event.type === 'turn/end') {
+      if (this.tagQueue.length > 0) this.tags = this.tagQueue.shift()!
+      if (event.data.reason.kind === 'error') {
+        this.store.appendAgent({
+          id: 'e-' + sessionId + '-' + event.seq,
+          text: 'The agent turn failed: ' + failureText(event.data.reason.error.message),
+          at: new Date(event.time).toISOString(),
+          tags: turnTags,
+          kind: 'error',
+        })
+      }
     }
   }
 }
