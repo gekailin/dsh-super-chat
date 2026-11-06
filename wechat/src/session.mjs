@@ -154,11 +154,12 @@ export class WechatSession {
   /** Stop the session. `notify` signs out on the WeChat server too; restarts and shutdowns keep the login. */
   async stop({ notify = false } = {}) {
     this.stopping = true;
-    let notified = null;
-    if (notify && this.client) notified = await this.client.logout();
     this.abort?.abort();
     this.poller?.stop();
     this.closed = true;
+    await this.bridge?.chain?.catch(() => {});
+    let notified = null;
+    if (notify && this.client) notified = await this.client.logout();
     if (this.state) await this.state.save().catch(() => {});
     return { notified };
   }

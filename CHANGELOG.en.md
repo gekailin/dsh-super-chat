@@ -7,6 +7,7 @@
 - The panel gains an **Auto-tag** action: in the general chat, the profile's default model labels untagged messages with existing topics only. Existing tags are never overwritten, no topics are created, and agent replies inherit the tags.
 - Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.
 - The panel's "General chat" is now "All messages", with a new "<No topic>" view that lists only untagged messages.
+- Fixed data-consistency and race conditions from the code review: evict the oldest unused topic at `TOPIC_LIMIT` while preserving tags created in the same batch, quarantine corrupt SQLite databases or stale schemas alongside `-wal`/`-shm` sidecars, unregister the Source if `SuperagentChat.stop()` races with connection startup, sequence `send`/`stop` requests and sync `topicId` after tagged sends, ignore Enter during IME composition, and harden WeChat bridge origin/header checks, login/logout races, inbound `seen` persistence and 4xx outbox handling.
 
 ## 0.1.0
 

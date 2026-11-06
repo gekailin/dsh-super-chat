@@ -43,9 +43,13 @@ export class State {
         state.data = { version: VERSION, peers };
       } else {
         log('[state] 版本不匹配，使用空状态');
+        await rename(path, path + '.corrupt-' + Date.now()).catch(() => {});
       }
     } catch (e) {
-      if (e.code !== 'ENOENT') log('[state] 读取失败，使用空状态: ' + e.message);
+      if (e.code !== 'ENOENT') {
+        log('[state] 读取失败，使用空状态: ' + e.message);
+        await rename(path, path + '.corrupt-' + Date.now()).catch(() => {});
+      }
     }
     return state;
   }
