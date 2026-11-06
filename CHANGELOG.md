@@ -2,8 +2,10 @@
 
 [简体中文](CHANGELOG.zh.md) | English
 
-## Unreleased
+## 0.2.0
 
+- The panel opens on the newest messages and fetches older pages when you scroll up, instead of replaying the whole stream from the top. Polling keeps the loaded pages and the reader's position.
+- The `<No topic>` view is filtered at read time and shows a live untagged count in the sidebar; its messages page the same way as the other views.
 - Documentation now defaults to English; Chinese versions use the `.zh.md` suffix.
 - The panel gains an **Auto-tag** action: in the general chat, the profile's default model labels untagged messages with existing topics only. Existing tags are never overwritten, no topics are created, and agent replies inherit the tags.
 - Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.

@@ -28,7 +28,7 @@
 - 消息和主题必须完整、可恢复。`chat.sqlite` 的写入在事务中完成，消息与 `message_topic` 索引保持一致；目录 `0700`。
 - 消息和主题都有上限（`MESSAGE_LIMIT`、`TOPIC_LIMIT`）；淘汰只移除最旧消息，不能静默丢失当前主题。
 - 数据库或旧 `chat.json` 损坏时隔离为 `.corrupt-<timestamp>`，不要让 DSH 启动失败，也不要静默覆盖。
-- 面板显示所选视图的完整消息；轮询是读，不得因为读而改变排序或标签。
+- 面板先显示最新一页，上滚加载更早分页后即可看到所选视图的完整消息；轮询是读，不得因为读而重排已加载消息或改变标签。
 - Superagent 集成里，Trigger、Thread、Ticket 的身份必须稳定：`super-chat` Source；有标签时 dispatch thread 是 `super-chat:topic:<topicId>`，无标签时是 `super-chat:general`；不能因重启改变授权或工单历史。
 
 ### 效率

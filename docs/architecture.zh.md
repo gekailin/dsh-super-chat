@@ -22,7 +22,7 @@
 | `src/protocol.ts` | both | 共享 id、上限、消息/主题形状和文本辅助函数。 |
 | `src/client/index.tsx` | browser | 注册 `main` 面板、词典和 `sidebar.panellist` 入口；在 Superagent 行标题右侧挂 Super Chat 快捷入口，找不到时保留独立入口。 |
 | `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
-| `src/client/chat.tsx` | browser | 全部消息、主题视图、`<无主题>` 过滤、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
+| `src/client/chat.tsx` | browser | 最新一页优先、上滚加载更早分页、`<无主题>` 视图、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/text.ts` | browser | 消息元数据的相对时间与简短日期格式化。 |
 | `src/client/locales.ts` | browser | 面板与微信弹窗的简体中文、英文词典。 |
@@ -64,7 +64,7 @@ CREATE INDEX message_topic_topic ON message_topic(topic_id, message_id);
 - 只有一条消息流；主题是消息上的标签，不是独立对话。一个消息可以有多个主题，出现在多个主题视图里。
 - 消息 id 全局唯一，用于去重；最多保留 `MESSAGE_LIMIT`（1000）条，最早的先淘汰。
 - 主题名大小写不敏感且唯一；最多 `TOPIC_LIMIT`（200）个。
-- 主题视图按 `message_topic.topic_id` 过滤；全部消息按 `message.seq` 取整条流。
+- 主题视图按 `message_topic.topic_id` 过滤；全部消息按 `message.seq` 读取整条流。读取返回一页（默认 50 条，最多 `VIEW_LIMIT`），存储侧从新到旧，返回时从旧到新；`before=<最旧 id>` 读取上一页。
 - 旧 `chat.json` 在首次打开空库时导入：v1 的多个对话被扁平化到通用流；导入成功后旧文件改名为 `chat.json.imported-<timestamp>`。损坏的旧文件改名为 `.corrupt-<timestamp>`，不阻塞启动。
 - SQLite 使用 WAL；一个 profile 只有一个进程写库。
 
@@ -72,8 +72,8 @@ CREATE INDEX message_topic_topic ON message_topic(topic_id, message_id);
 
 ```
 浏览器
-  │ GET /super-chat/api/chat?topic=<id>   读通用或主题视图
-  │ POST /super-chat/api/chat {text,tags} 发消息
+  │ GET /super-chat/api/chat?topic=<id>&before=<id>&limit=<n>   读一页
+  │ POST /super-chat/api/chat {text,tags}                       发消息
   ▼
 ChatStore（SQLite）
   │ appendUser / resolveTags
@@ -100,7 +100,7 @@ ChatTransportRouter
 
 ### 全部消息与 `<无主题>`
 
-面板的主视图叫「全部消息」，读取整条聊天流。侧栏的「`<无主题>`」不是主题，也不是独立存储或分发分区：它在客户端把当前拉取到的消息过滤为没有标签的那些，因此不需要新接口，也不会改变主题列表、Trigger 或 dispatch。未打标签的消息仍然走 `super-chat:general`，由 Superagent 判断。
+面板的主视图叫「全部消息」，按最新一页优先读取：打开面板直接停在最新消息的底部，不重放整条流；滚到顶部时用 `before` 读取上一页。侧栏的「`<无主题>`」不是主题，也不是独立存储或分发分区：它只是在读取时把同一条流过滤为没有标签的消息，因此分页和计数都不复制消息。侧栏显示未打标签消息的总数；未打标签的消息仍然走 `super-chat:general`，由 Superagent 判断。轮询只把最新一页合并进已加载的流，不重排已加载消息；除非读者已在底部，否则不改变滚动位置。
 
 ### 自动打标签
 
@@ -118,17 +118,21 @@ ChatTransportRouter
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
-| GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, mode, busy? }` |
+| GET | `/super-chat/api/chat?topic=<id>&before=<id>&limit=<n>` | — | `{ topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| GET | `/super-chat/api/chat?untagged=1&before=<id>&limit=<n>` | — | `{ topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
-| POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/wechat/start` | — | `{ ok, result: 'running' | 'started' }` |
 
 - `tags` 是主题名称数组；服务端解析并创建缺失主题，消息里存主题 id。
 - `topic` 是当前视图 id，用于返回同视图的消息；不是标签。
+- `untagged=1` 只选没有主题标签的消息，不能和 `topic` 同时使用。
+- `messages` 是一页消息，从旧到新。`limit` 为 1 到 `VIEW_LIMIT`（200）的整数，默认 `MESSAGE_PAGE`（50）。`olderCursor` 是本页最旧消息的 id；把它作为 `before` 可读取上一页，`hasOlder` 表示上一页是否可能非空。
+- `untaggedCount` 是保留窗口内未打标签消息的总数，用于侧栏计数。
 - 重复 `clientId` 返回 `duplicate`，不会再次投递。
 - `chat/tag` 只给未打标签的消息补上已有主题；`tagged` 是本次新增标签的消息数（含继承标签的回复）。
 - `chat/tags` 用提交的标签集合替换一条已有消息的标签；名称会解析并创建缺失主题，空数组表示清空。
@@ -139,7 +143,7 @@ ChatTransportRouter
 `wechat/` 是独立的 Node.js 进程，默认使用通用聊天。`src/wechat-bridge.ts` 负责生命周期与保活：未保存登录凭据时只在用户打开微信接入弹窗时按需启动；一旦 `stateDir/wechat/creds.json` 存在，宿主加载和后台巡检会自动确保桥进程在线，异常退出或宿主重启后自动拉起，无需再次点击面板。每次启动前先探测 `8790/health`，已有桥则复用；否则 spawn，并只停止自己启动的进程。登录态、游标和待发队列在 `stateDir/wechat/`，旧的手动 `wechat/creds.json` 只复制一次。
 
 - 文本里的 `@主题` 被解析成主题名称，从正文移除后作为 `tags` 提交；多个 `@主题` 产生多个标签。
-- 单流轮询：桥读取 `GET /chat`，把游标之后的 agent 消息转发到微信；带标签的回复加 `「主题」` 前缀。
+- 单流轮询：桥读取 `GET /chat?limit=200`，把游标之后的 agent 消息转发到微信；带标签的回复加 `「主题」` 前缀。完整窗口让桥的已投递游标留在拉取页内，面板本身每次只分页 50 条。
 - 没有命令系统；`/list` 等文本按普通消息发送。
 - 桥只通过 loopback 调用 `/super-chat/api/chat`；插件宿主永远看不到微信凭据。
 

@@ -2,8 +2,8 @@
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
-  MAX_BODY, MAX_TEXT, VIEW_LIMIT, cleanTopicName, validMessageId, validTopicId,
-  type ChatMessage, type ChatView, type Topic,
+  MAX_BODY, MAX_TEXT, MESSAGE_PAGE, VIEW_LIMIT, cleanTopicName, validMessageId, validTopicId,
+  type ChatView, type Topic,
 } from './protocol.ts'
 import type { ChatStore } from './store.ts'
 import type { ChatTransport } from './transport.ts'
@@ -73,6 +73,21 @@ const topicParam = (value: string | null): string | undefined => {
   return value
 }
 
+const messageParam = (value: string | null): string | undefined => {
+  if (!value) return undefined
+  if (!validMessageId(value)) throw new BadRequest('Invalid message id')
+  return value
+}
+
+const limitParam = (value: string | null): number | undefined => {
+  if (value === null || value === '') return undefined
+  const limit = Number(value)
+  if (!Number.isInteger(limit) || limit < 1 || limit > VIEW_LIMIT) {
+    throw new BadRequest('limit must be an integer between 1 and ' + VIEW_LIMIT)
+  }
+  return limit
+}
+
 const topicNames = (value: unknown): string[] => Array.isArray(value)
   ? value.filter((item): item is string => typeof item === 'string').map(cleanTopicName).filter(Boolean)
   : []
@@ -82,14 +97,23 @@ class NotFound extends Error {}
 
 /** Build the request handler registered on /super-chat. */
 export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-  const view = (topicId?: string): ChatView => {
+  const view = (topicId?: string, before?: string, untagged = false, limit = MESSAGE_PAGE): ChatView => {
     if (topicId && !deps.store.topic(topicId)) throw new NotFound('Unknown topic')
     const topics = deps.store.topics().map(topic => deps.transport.busy(topic.id) ? { ...topic, busy: true } : topic)
     const topic = topicId ? topics.find(item => item.id === topicId) : undefined
+    const page = deps.store.page({
+      ...(topicId ? { topicId } : {}),
+      ...(untagged ? { untagged: true } : {}),
+      ...(before ? { before } : {}),
+      limit,
+    })
     return {
       ...(topic ? { topic } : {}),
       topics,
-      messages: deps.store.messages(topicId, VIEW_LIMIT),
+      messages: page.messages,
+      hasOlder: page.hasOlder,
+      ...(page.messages[0] ? { olderCursor: page.messages[0].id } : {}),
+      untaggedCount: deps.store.untaggedCount(),
       mode: deps.transport.mode(),
       ...(deps.transport.busy(topicId) ? { busy: true } : {}),
     }
@@ -132,7 +156,14 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
       }
       if (path === 'chat' && req.method === 'GET') {
         const topic = topicParam(url.searchParams.get('topic'))
-        writeJson(res, 200, view(topic))
+        const untagged = url.searchParams.get('untagged') === '1'
+        if (topic && untagged) throw new BadRequest('Choose a topic or the untagged view')
+        writeJson(res, 200, view(
+          topic,
+          messageParam(url.searchParams.get('before')),
+          untagged,
+          limitParam(url.searchParams.get('limit')) ?? MESSAGE_PAGE,
+        ))
         return
       }
       if (path === 'chat' && req.method === 'POST') {

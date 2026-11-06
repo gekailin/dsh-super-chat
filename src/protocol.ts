@@ -6,8 +6,10 @@ export const SESSION_PREFIX = 'super-chat-'
 export const GENERAL_CHAT = 'general'
 /** How many messages the single chat stream keeps. */
 export const MESSAGE_LIMIT = 1000
-/** How many messages one view returns; older messages stay on disk until the stream bound. */
+/** Most messages one view can return; older messages stay on disk until the stream bound. */
 export const VIEW_LIMIT = 200
+/** Default messages per panel page; scrolling up asks for the next older page. */
+export const MESSAGE_PAGE = 50
 /** How many named topics one deployment keeps. */
 export const TOPIC_LIMIT = 200
 /** Most tags one message may carry. */
@@ -50,7 +52,14 @@ export interface ChatView {
   /** The selected topic, omitted for the general chat. */
   topic?: Topic
   topics: Topic[]
+  /** One page of messages, oldest first; the newest page for the selected view. */
   messages: ChatMessage[]
+  /** Id of the oldest message in this page; pass it as `before` to read the previous page. */
+  olderCursor?: string
+  /** Whether messages older than this page exist. */
+  hasOlder?: boolean
+  /** Total messages carrying no topic tag, for the `<No topic>` count. */
+  untaggedCount?: number
   /** Whether messages are handled by superagent Tickets or by the fallback Session. */
   mode: 'superagent' | 'session'
   /** Whether the selected view has work in flight. */

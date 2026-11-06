@@ -22,6 +22,8 @@ export type SuperChatKey =
   | 'stopHint'
   | 'busy'
   | 'loading'
+  | 'loadingOlder'
+  | 'olderHint'
   | 'connectionFailed'
   | 'resize'
   | 'close'
@@ -87,6 +89,8 @@ export const en: Record<SuperChatKey, string> = {
   stopHint: 'Stop the work for this view',
   busy: 'Working',
   loading: 'Loading…',
+  loadingOlder: 'Loading older messages…',
+  olderHint: 'Scroll up for older messages',
   connectionFailed: 'The Super Chat server is unreachable. Retrying…',
   resize: 'Resize the topic list',
   close: 'Close',
@@ -151,6 +155,8 @@ export const zh: Record<SuperChatKey, string> = {
   stopHint: '停止当前视图的工单',
   busy: '处理中',
   loading: '加载中…',
+  loadingOlder: '正在加载更早的消息…',
+  olderHint: '上滚加载更早的消息',
   connectionFailed: '无法连接 Super Chat 服务，正在重试…',
   resize: '调整主题列表宽度',
   close: '关闭',

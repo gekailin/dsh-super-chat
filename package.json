@@ -1,6 +1,6 @@
 {
   "name": "dsh-super-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A Super Chat panel for DeepSeek Harness: a super-chat Source for dsh-superagent-prototype, with one tagged chat stream, topic-filtered views, SQLite storage, and a single-session fallback.",
   "keywords": [
     "dsh",
