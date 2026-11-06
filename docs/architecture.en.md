@@ -17,6 +17,8 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/wechat-bridge.ts` | host | WeChat bridge lifecycle and keep-alive: starts on demand before sign-in, and automatically resumes and monitors the bridge while saved credentials exist; reuses an external bridge and stops only the child it started. |
 | `src/api.ts` | host | `/super-chat/api/*`: validation, same-origin guard, topic resolution and message storage. |
 | `src/monkey.ts` | host | Filters `super-chat-*` Sessions out of `sessionController.list`. |
+| `src/workspace-group.ts` | both | Shared workspace-group shape and the browser-side merge projection. |
+| `src/workspace-group-host.ts` | host | Ensures the prototype state-directory Workspace, attaches and pins the orchestrator Session. |
 | `src/protocol.ts` | both | Shared ids, limits, message/topic shapes and text helpers. |
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
 | `src/client/chat.tsx` | browser | All messages, topic views, the `<No topic>` filter, tag input, new topics, per-message tag editing, stop and polling. |
@@ -111,6 +113,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
+| GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
@@ -157,6 +160,17 @@ if (ctx.sessionController.list === wrapper) ctx.sessionController.list = origina
 - Only reads `items`; unknown extra fields are preserved by spreading `...value`.
 - If another plugin wraps `list` later, this plugin's disposer leaves the newer wrapper alone; restoration order is handled as before.
 - The patch does not touch `create`, `resolveAgent`, `prompt`, `cancel`, `rename` or other methods.
+
+## Superagent workspace grouping
+
+The prototype's orchestrator Session lives in `stateDir`, while each ticket worker lives in its own ticket directory. The DSH workspace browser groups by Workspace, so a fresh deployment shows one group per ticket. Once the prototype is configured the plugin uses the public `workspaceRegistry` to:
+
+- call `create(stateDir, 'Superagent')`, ensuring the group Workspace exists; a title still equal to the state directory basename is renamed to `Superagent`, while a user-chosen title is kept;
+- attach the orchestrator Session to that Workspace and add it to the registry pin set. `attachSession` requires the Session header cwd to equal the Workspace path; when it fails the browser still renders the Session id.
+
+The browser half reads `GET /super-chat/api/workspace-group` every five seconds. With a group it wraps `ctx.workspaces.list`'s `getSnapshot`: every Workspace under `workRoot` (default `<stateDir>/work`, otherwise the settings' `executor.directory`) leaves the snapshot and its Session ids join the group Workspace's `sessionIds`. The merge is a client projection only: the Host registry, each Session's header cwd, working directory and execution environment stay unchanged. The merged snapshot keeps the same object while its inputs do not change, so React does not re-render for a no-op.
+
+Deleting the group Workspace registration removes it from the snapshot, so the browser restores the per-ticket groups automatically; stopping the plugin restores the original source. Limits: only Workspaces under that state directory and executor directory are covered; creating a Session inside the group targets the state directory; Host changes surface at most one polling interval later.
 
 ## Same-origin and CSRF
 

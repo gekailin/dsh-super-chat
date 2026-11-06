@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { ChatPanel } from './chat.tsx'
 import type { ClientContext, Translate } from './dsh.ts'
 import { en, zh } from './locales.ts'
+import { installWorkspaceGroup } from './workspace-group.ts'
 
 const NS = 'dshSuperChat'
 const PANEL_ID = 'super-chat'
@@ -87,11 +88,12 @@ function SidebarShortcut({ ctx, label, text }: { ctx: ClientContext; label: stri
   return <span ref={glyph} style={{ display: 'inline-flex' }}><ChatIcon size={16} /></span>
 }
 
-export const inject = ['slots', 'locale', 'layout']
+export const inject = ['slots', 'locale', 'layout', 'workspaces']
 
 /** Register the panel, the sidebar shortcut and this plugin's dictionaries. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-super-chat: dictionaries')
+  ctx.effect(() => installWorkspaceGroup(ctx), 'dsh-super-chat: workspace group')
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('main', () => ctx.slots.register<{ t: Translate }>(
     { name: 'main', key: PANEL_ID, locale: NS, inject: () => ({}) },

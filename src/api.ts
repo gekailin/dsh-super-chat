@@ -7,6 +7,7 @@ import {
 } from './protocol.ts'
 import type { ChatStore } from './store.ts'
 import type { ChatTransport } from './transport.ts'
+import type { WorkspaceGroupInfo } from './workspace-group.ts'
 
 /** Everything the HTTP layer needs. */
 export interface ApiDeps {
@@ -20,6 +21,8 @@ export interface ApiDeps {
   port: number
   /** Configured bind address, used for the same-origin check. */
   host: string
+  /** Current Superagent workspace group; absent when Superagent is not integrated. */
+  workspaceGroup?: () => WorkspaceGroupInfo | undefined
 }
 
 const REQUEST_HEADER = 'x-super-chat-request'
@@ -114,6 +117,10 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
       if (path === 'health' && req.method === 'GET') {
         const stats = deps.store.stats()
         writeJson(res, 200, { ok: true, messages: stats.messages, topics: stats.topics })
+        return
+      }
+      if (path === 'workspace-group' && req.method === 'GET') {
+        writeJson(res, 200, { group: deps.workspaceGroup?.() ?? null })
         return
       }
       if (path === 'wechat/start' && req.method === 'POST') {

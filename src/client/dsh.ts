@@ -6,6 +6,13 @@
  * type packages of the host. They mirror the public registration shapes documented by DSH.
  */
 import type { ReactNode } from 'react'
+import type { WorkspaceGroupSnapshot } from '../workspace-group.ts'
+
+/** Bare observable source behind the client Workspace snapshot. */
+export interface WorkspaceSource {
+  getSnapshot(): WorkspaceGroupSnapshot
+  subscribe(listener: () => void): () => void
+}
 
 /** Translation function bound to this plugin's locale namespace. */
 export type Translate = (key: string, values?: Record<string, string | number>) => string
@@ -33,4 +40,6 @@ export interface ClientContext {
     register<P>(spec: SlotSpec, component: (props: P) => ReactNode): () => void
   }
   layout: { selectPanel(id: string): void }
+  /** Client Workspace state; absent only on hosts without the workspace browser. */
+  workspaces?: { list: WorkspaceSource }
 }

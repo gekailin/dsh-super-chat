@@ -28,6 +28,7 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
 - **Manual tag editing**: each message's tag row can add or remove tags and save; only that message changes, a new name creates a topic, and no work is dispatched.
 - **Superagent Tickets**: acknowledgements, answers and results come back with their tags. A chat-only prototype with no GitHub repository or CLI can still take work.
+- **Workspace grouping**: with the prototype installed, the orchestrator's Workspace and each ticket worker's Workspace appear as one **Superagent** group with the orchestrator pinned on top. The merge is presentation-only and does not move a Session's working directory.
 - **SQLite**: messages, topics and message-topic links live in indexed tables; an old `chat.json` is migrated once.
 - **WeChat remote access**: the bridge starts on demand when the panel entry opens; it defaults to the general chat and uses `@topic` in natural language. There is no command system.
 - **Bilingual UI** following the DSH locale.
@@ -111,6 +112,7 @@ When `dsh-superagent-prototype` is installed in the same profile, its runtime ex
 - **Tagged**: the first tag selects the `super-chat:topic:<topicId>` dispatch thread; every tag is carried in Trigger meta and the text cue. Tags are hints, not hard constraints.
 - **Untagged**: uses `super-chat:general`; the general chat is left entirely to Superagent.
 - **Chat-only**: the prototype's setup normally requires a GitHub repository and signed-in `gh` CLI. When both GitHub fields are empty the plugin wraps the prototype's `Setup` class in memory, accepts an empty deployment and asks the prototype to restart. No prototype file is modified. Workers in that mode have no GitHub tooling. This compatibility path covers the chat Source only; if Feishu is also needed, configure GitHub as the prototype expects so its original setup can handle Feishu.
+- **Workspace grouping**: the prototype creates a Workspace for every ticket directory. The plugin keeps one **Superagent** Workspace over the prototype's state directory and folds ticket Workspaces into that group in the browser; the orchestrator Session is pinned first. `docs/architecture.md` records the mechanics and limits.
 - **Fallback**: when the service is absent, unconfigured, or the patch no longer applies, `GeneralSession` handles every message in one DSH Session; topic tags are only hints.
 
 ## Permissions and approvals

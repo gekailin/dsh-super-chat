@@ -28,6 +28,7 @@
 - **自动打标签**：全部消息视图右上角用 profile 默认模型给未打标签的消息套用已有主题；只补空标签，agent 回复继承标签，不创建新主题。
 - **手动标签编辑**：每条消息的标签行可以逐条增删标签并保存；只改这一条消息，可新建主题，不触发分发。
 - **Superagent 工单**：确认、回答和结果会带标签回到聊天流；没有 GitHub 仓库或 CLI 的 chat-only prototype 也能接单。
+- **工作区分组**：装了 prototype 时，把 orchestrator 与各工单 worker 的 Workspace 合并显示为一个 “Superagent” 分组，orchestrator 置顶；只在浏览器侧合并展示，不改变 Session 的工作目录。
 - **SQLite**：消息、主题和消息-主题关系用表存储，并建立索引；旧的 `chat.json` 会一次性迁移。
 - **微信远程接入**：打开面板入口时按需启动桥，默认通用聊天，自然语言里写 `@主题` 即可打标；不再使用命令系统。
 - **中英双语**，跟随 DSH locale。
@@ -111,6 +112,7 @@ dsh plugin --profile web add "$PWD"
 - **有标签**：第一个标签决定 `super-chat:topic:<topicId>` dispatch thread，其余标签放进 Trigger meta 和文本线索。标签是提示，不是硬约束。
 - **无标签**：走 `super-chat:general`；通用聊天完全交给 Superagent 判断。
 - **chat-only**：prototype 的 setup 通常要求 GitHub 仓库和已登录的 `gh` CLI。GitHub 两项都为空时，插件在内存中包装 prototype 的 `Setup` 类，让它接受空部署，然后请 prototype 重启；不修改任何 prototype 文件。这种模式下 worker 没有 GitHub 工具。该兼容路径只覆盖聊天 Source；如果还要使用 Feishu，仍按 prototype 的要求配置 GitHub，让原始 setup 处理 Feishu。
+- **工作区分组**：prototype 的每张工单会在自己的目录下创建一个 Workspace。插件为 prototype 的 state 目录保留一个 “Superagent” Workspace，并在浏览器侧把工单 Workspace 折进该分组；orchestrator Session 置顶。`docs/architecture.md` 记录了工作原理和边界。
 - **回退**：服务不存在、未配置或补丁失效时，改用 `GeneralSession`，所有消息进入一个通用 DSH Session，主题标签只作为提示。
 
 ## 权限与审批
