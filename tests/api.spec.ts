@@ -117,6 +117,29 @@ describe('Super Chat HTTP API', () => {
     expect(rejected.status).toBe(400)
   })
 
+  it('replaces one message tags on demand and clears them', async () => {
+    const view = await (await call('/super-chat/api/chat')).json() as { messages: { id: string; text: string; tags: string[] }[] }
+    const target = view.messages.find(message => message.text === 'hello')!
+    expect(target).toBeDefined()
+
+    const updated = await call('/super-chat/api/chat/tags', { method: 'POST', body: JSON.stringify({ id: target.id, tags: ['Manual'] }) })
+    expect(updated.status).toBe(200)
+    const body = await updated.json() as { result: string; topics: { id: string; name: string }[]; messages: { id: string; tags: string[] }[] }
+    expect(body.result).toBe('updated')
+    const manual = body.topics.find(topic => topic.name === 'Manual')!
+    expect(manual).toBeDefined()
+    expect(body.messages.find(message => message.id === target.id)?.tags).toEqual([manual.id])
+
+    const cleared = await call('/super-chat/api/chat/tags', { method: 'POST', body: JSON.stringify({ id: target.id, tags: [] }) })
+    expect(cleared.status).toBe(200)
+    expect((await cleared.json() as { messages: { id: string; tags: string[] }[] }).messages
+      .find(message => message.id === target.id)?.tags).toEqual([])
+
+    expect((await call('/super-chat/api/chat/tags', { method: 'POST', body: JSON.stringify({ id: 'missing', tags: [] }) })).status).toBe(404)
+    expect((await call('/super-chat/api/chat/tags', { method: 'POST', body: JSON.stringify({ id: target.id, tags: 'bad' }) })).status).toBe(400)
+    expect((await call('/super-chat/api/chat/tags', { method: 'POST', body: JSON.stringify({ tags: [] }) })).status).toBe(400)
+  })
+
   it('creates, renames and validates topics', async () => {
     const created = await call('/super-chat/api/topics', { method: 'POST', body: JSON.stringify({ name: '  New topic  ' }) })
     const result = await created.json() as { topic: { id: string; name: string } }

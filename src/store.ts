@@ -280,6 +280,29 @@ export class ChatStore {
   }
 
   /**
+   * Replace one message's tags with named topics, creating names that do not exist yet. The
+   * replacement and any topic creation share one transaction; an unknown message changes nothing.
+   */
+  setMessageTags(id: string, names: readonly string[], at: string): boolean {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      if (!this.hasMessage(id)) {
+        this.db.exec('ROLLBACK')
+        return false
+      }
+      const topics = this.resolveTags(names, at)
+      this.db.prepare('DELETE FROM message_topic WHERE message_id = ?').run(id)
+      const insert = this.db.prepare('INSERT OR IGNORE INTO message_topic (message_id, topic_id, ordinal) VALUES (?, ?, ?)')
+      topics.forEach((topic, ordinal) => insert.run(id, topic.id, ordinal))
+      this.db.exec('COMMIT')
+      return true
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /**
    * Apply model-chosen topic names to messages that still have no tags. Unknown names and unknown
    * messages are ignored, so a stale or hallucinated answer cannot create topics or overwrite labels.
    * Untagged agent replies then inherit the tags of the nearest preceding user message, mirroring the

@@ -52,7 +52,7 @@ const readWidth = (): number => {
   return Number.isFinite(value) ? clampWidth(value) : DEFAULT_WIDTH
 }
 
-function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | 'tag' | 'x'; size?: number }) {
+function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | 'tag' | 'x' | 'pencil'; size?: number }) {
   const path = name === 'chat'
     ? <><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" /><path d="M8 9h8M8 13h5" /></>
     : name === 'plus'
@@ -63,7 +63,9 @@ function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | '
           ? <><rect x="6" y="6" width="12" height="12" rx="2" /></>
           : name === 'x'
             ? <><path d="m6 6 12 12M18 6 6 18" /></>
-            : <><path d="m4 4 16 8-16 8 4-8z" /></>
+            : name === 'pencil'
+              ? <><path d="M4 20h4L20 8l-4-4L4 16z" /><path d="m14 6 4 4" /></>
+              : <><path d="m4 4 16 8-16 8 4-8z" /></>
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}
     strokeLinecap="round" strokeLinejoin="round" aria-hidden>{path}</svg>
 }
@@ -85,6 +87,8 @@ export function ChatPanel({ t }: { t: T }) {
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [editing, setEditing] = useState<{ id: string; tags: string[]; draft: string }>()
+  const [savingTags, setSavingTags] = useState(false)
   const drag = useRef<{ x: number; width: number }>()
   const end = useRef<HTMLDivElement>(null)
   const latest = useRef(0)
@@ -138,6 +142,7 @@ export function ChatPanel({ t }: { t: T }) {
     setLoaded(false)
     setError(undefined)
     setTagNote(undefined)
+    setEditing(undefined)
     setTags([])
     setTagDraft('')
     setNewTopic(undefined)
@@ -204,6 +209,7 @@ export function ChatPanel({ t }: { t: T }) {
   }
   const autoTag = async () => {
     if (tagging || topicRef.current !== undefined) return
+    setEditing(undefined)
     setTagging(true); setError(undefined); setTagNote(undefined)
     try {
       const result = await ask<ChatView & { tagged: number }>('/chat/tag', { method: 'POST', body: '{}' })
@@ -214,6 +220,56 @@ export function ChatPanel({ t }: { t: T }) {
       setOffline(false)
       setTagNote(result.tagged > 0 ? t('autoTagDone', { count: result.tagged }) : t('autoTagNone'))
     } catch (failure) { if (topicRef.current === undefined) setError(errorText(failure)) } finally { setTagging(false) }
+  }
+  const startEdit = (message: ChatMessage) => {
+    setError(undefined)
+    setEditing({ id: message.id, tags: messageTagNames(message, view.topics), draft: '' })
+  }
+  const cancelEdit = () => setEditing(undefined)
+  const addEditTags = (value: string) => {
+    const names = splitTags(value)
+    if (names.length === 0) return
+    setEditing(current => current
+      ? { ...current, tags: mergeTagNames(undefined, [...current.tags, ...names]), draft: '' }
+      : current)
+  }
+  const removeEditTag = (name: string) => {
+    setEditing(current => current
+      ? { ...current, tags: current.tags.filter(item => !sameTopicName(item, name)) }
+      : current)
+  }
+  const editKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
+      event.preventDefault()
+      addEditTags(editing?.draft ?? '')
+    }
+    if (event.key === 'Backspace' && !editing?.draft && editing?.tags.length) {
+      setEditing(current => current ? { ...current, tags: current.tags.slice(0, -1) } : current)
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelEdit()
+    }
+  }
+  const saveEdit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!editing || savingTags) return
+    setSavingTags(true); setError(undefined)
+    const names = mergeTagNames(undefined, [...editing.tags, ...splitTags(editing.draft)])
+    const viewAtStart = topicRef.current
+    try {
+      const result = await ask<ChatView & { result: string }>('/chat/tags', {
+        method: 'POST',
+        body: JSON.stringify({ id: editing.id, tags: names, ...(viewAtStart ? { topic: viewAtStart } : {}) }),
+      })
+      // A topic selected while the save was in flight owns the view now; polling will refresh it.
+      if (topicRef.current !== viewAtStart) return
+      setView(result)
+      setEditing(current => current && current.id === editing.id ? undefined : current)
+      setOffline(false)
+    } catch (failure) {
+      if (topicRef.current === viewAtStart) setError(errorText(failure))
+    } finally { setSavingTags(false) }
   }
   const stop = async () => {
     if (cancelling) return
@@ -301,18 +357,40 @@ export function ChatPanel({ t }: { t: T }) {
         {!loaded ? <p className="chat-hint">{t('loading')}</p>
           : view.messages.length === 0
             ? <p className="chat-hint">{selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
-            : view.messages.map(message => <article key={message.id} className="chat-message" data-role={message.role}
-              data-kind={message.kind || undefined}>
-              <div className="chat-bubble">{message.text}</div>
-              <div className="chat-message-foot">
-                <div className="chat-message-tags">
-                  {messageTagNames(message, view.topics).map(name => <button key={name} type="button" className="chat-tag"
-                    onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
-                    title={t('openTopic')}>{name}</button>)}
+            : view.messages.map(message => {
+              const editingThis = editing !== undefined && editing.id === message.id
+              return <article key={message.id} className="chat-message" data-role={message.role}
+                data-kind={message.kind || undefined}>
+                <div className="chat-bubble">{message.text}</div>
+                <div className="chat-message-foot">
+                  {editingThis && editing
+                    ? <div className="chat-message-tags">
+                      {editing.tags.map(name => <span key={name} className="chat-tag">{name}
+                        <button type="button" className="chat-tag-remove" aria-label={t('removeTag')} title={t('removeTag')}
+                          onClick={() => removeEditTag(name)}><Icon name="x" size={11} /></button>
+                      </span>)}
+                    </div>
+                    : <div className="chat-message-tags">
+                      {messageTagNames(message, view.topics).map(name => <button key={name} type="button" className="chat-tag"
+                        onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
+                        title={t('openTopic')}>{name}</button>)}
+                    </div>}
+                  {!editingThis && <button type="button" className="chat-message-edit" aria-label={t('editTags')} title={t('editTags')}
+                    onClick={() => startEdit(message)}><Icon name="pencil" size={12} /></button>}
+                  <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
                 </div>
-                <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
-              </div>
-            </article>)}
+                {editingThis && editing && <form className="chat-tag-editor" onSubmit={event => void saveEdit(event)}>
+                  <input className="chat-tag-input" autoFocus value={editing.draft}
+                    onChange={event => setEditing(current => current ? { ...current, draft: event.target.value } : current)}
+                    onKeyDown={editKey} placeholder={t('tagPlaceholder')} aria-label={t('tagPlaceholder')}
+                    list="super-chat-topic-options" />
+                  <div className="chat-tag-editor-actions">
+                    <button type="button" className="chat-button chat-button-small" onClick={cancelEdit}>{t('cancel')}</button>
+                    <button type="submit" className="chat-button chat-button-small chat-primary" disabled={savingTags}>{t('save')}</button>
+                  </div>
+                </form>}
+              </article>
+            })}
         <div ref={end} />
       </div>
       <div className="chat-foot">

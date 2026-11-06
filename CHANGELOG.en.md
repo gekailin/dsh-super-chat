@@ -5,6 +5,7 @@
 ## Unreleased
 
 - The panel gains an **Auto-tag** action: in the general chat, the profile's default model labels untagged messages with existing topics only. Existing tags are never overwritten, no topics are created, and agent replies inherit the tags.
+- Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.
 
 ## 0.1.0
 

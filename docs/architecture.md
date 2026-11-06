@@ -9,7 +9,7 @@
 | 文件 | 运行时 | 职责 |
 | --- | --- | --- |
 | `src/index.ts` | host | 读取配置、打开 SQLite、挂载 superagent Source、兜底 Session、HTTP API 和列表补丁。 |
-| `src/store.ts` | host | `chat.sqlite`：消息、主题、消息-主题关系、索引、旧 `chat.json` 迁移。 |
+| `src/store.ts` | host | `chat.sqlite`：消息、主题、消息-主题关系、索引、旧 `chat.json` 迁移，以及手动替换单条消息的标签。 |
 | `src/session.ts` | host | superagent 不可用时的单个兜底 DSH Session（`super-chat-general`）。 |
 | `src/transport.ts` | host | `ChatTransportRouter`：按当前可用性在 superagent 和兜底 Session 之间选择。 |
 | `src/superagent.ts` | host | 核心 `super-chat` Source、主题 dispatch、Channel/Thread context，以及仅内存中的 chat-only Setup 补丁。 |
@@ -19,7 +19,7 @@
 | `src/monkey.ts` | host | 从 `sessionController.list` 中过滤 `super-chat-*` Session。 |
 | `src/protocol.ts` | both | 共享 id、上限、消息/主题形状和文本辅助函数。 |
 | `src/client/index.tsx` | browser | 注册 `main` 面板、词典和 `sidebar.panellist` 入口；在 Superagent 行标题右侧挂 Super Chat 快捷入口，找不到时保留独立入口。 |
-| `src/client/chat.tsx` | browser | 通用聊天、主题视图、标签输入、新建主题、停止和轮询。 |
+| `src/client/chat.tsx` | browser | 通用聊天、主题视图、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/wechat.tsx` | browser | 微信接入入口和扫码/状态/退出窗口，背后是 `127.0.0.1:8790` 的本地桥。 |
 
@@ -96,6 +96,10 @@ ChatTransportRouter
 
 通用聊天右上角的「自动打标签」按需运行：只处理最近 `TAG_WINDOW`（即 `VIEW_LIMIT`，200）条消息里还没有标签的用户消息，让 profile 的默认模型从**已有主题**中选择标签；不创建新主题，也不覆盖已有标签。模型通过公开的 `llm` 服务直接调用（模型路由取自 `agentDefaultModel`），不创建额外 Session，也不给模型任何工具。每次最多发送 `TAG_WINDOW` 条消息、每条正文截断到 1000 字符，90 秒超时；输出不是合法 JSON 时重试一次，仍失败则保持原样并在面板显示错误。标签写入后，未打标签的 agent 回复继承最近的用户消息标签；这批写入和继承在同一个事务里完成，因此主题计数和视图始终一致。
 
+### 手动编辑标签
+
+每条消息的标签行右侧有「编辑标签」：打开后可以逐个移除现有标签，输入名称并回车添加（会解析并创建缺失主题），保存后只替换这一条消息的标签。手动编辑不像自动打标签那样让 agent 回复继承，也不会触发分发或创建新消息；清空标签后该消息回到未打标签状态，之后自动打标签可以再次处理。标签替换在同一个事务里完成。
+
 ## HTTP 契约
 
 所有请求要求 `x-super-chat-request: 1`，`Host` 必须匹配监听地址（或 loopback 写法），外来 `Origin` 被拒绝。POST body 为 JSON，限制 64 KiB。
@@ -106,6 +110,7 @@ ChatTransportRouter
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
@@ -115,6 +120,7 @@ ChatTransportRouter
 - `topic` 是当前视图 id，用于返回同视图的消息；不是标签。
 - 重复 `clientId` 返回 `duplicate`，不会再次投递。
 - `chat/tag` 只给未打标签的消息补上已有主题；`tagged` 是本次新增标签的消息数（含继承标签的回复）。
+- `chat/tags` 用提交的标签集合替换一条已有消息的标签；名称会解析并创建缺失主题，空数组表示清空。
 - `mode` 为 `superagent` 或 `session`；`busy` 表示当前视图有未结束的工单或 Session 回合。
 
 ## 微信桥

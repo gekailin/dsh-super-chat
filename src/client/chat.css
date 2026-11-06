@@ -40,6 +40,12 @@
 .chat-message-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .chat-message-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .chat-meta { font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-caption); }
+.chat-message-edit { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
+.chat-message-edit:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.chat-tag-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
+.chat-tag-editor .chat-tag-input { flex: 1; min-width: 120px; }
+.chat-tag-editor-actions { display: flex; gap: 6px; margin-left: auto; }
+.chat-button-small { height: 26px; padding: 0 10px; font-size: 12px; }
 .chat-tag { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 999px; background: var(--dsw-alias-bg-layer-1, transparent); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; line-height: 18px; white-space: nowrap; }
 button.chat-tag { cursor: pointer; }
 button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }

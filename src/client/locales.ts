@@ -25,6 +25,10 @@ export type SuperChatKey =
   | 'close'
   | 'openTopic'
   | 'removeTopic'
+  | 'editTags'
+  | 'removeTag'
+  | 'save'
+  | 'cancel'
   | 'tagPlaceholder'
   | 'autoTag'
   | 'autoTagHint'
@@ -84,6 +88,10 @@ export const en: Record<SuperChatKey, string> = {
   close: 'Close',
   openTopic: 'Open this topic',
   removeTopic: 'Remove topic',
+  editTags: 'Edit tags',
+  removeTag: 'Remove tag',
+  save: 'Save',
+  cancel: 'Cancel',
   tagPlaceholder: 'Add a topic…',
   autoTag: 'Auto-tag',
   autoTagHint: 'Use the model to label untagged messages with existing topics; existing tags are kept',
@@ -142,6 +150,10 @@ export const zh: Record<SuperChatKey, string> = {
   close: '关闭',
   openTopic: '打开该主题',
   removeTopic: '移除主题',
+  editTags: '编辑标签',
+  removeTag: '移除标签',
+  save: '保存',
+  cancel: '取消',
   tagPlaceholder: '添加主题…',
   autoTag: '自动打标签',
   autoTagHint: '用模型判断未打标签的消息，套用已有主题；已有标签不会改动',

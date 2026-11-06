@@ -25,6 +25,7 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 - **Topic views**: topics are tags on messages, not separate conversations. One message may carry several tags and appears in every matching view.
 - **Topics are dispatch cues**: for a tagged message the first tag becomes the `super-chat` dispatch thread; untagged messages go to `general` and Superagent decides. Tags never force the outcome.
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
+- **Manual tag editing**: each message's tag row can add or remove tags and save; only that message changes, a new name creates a topic, and no work is dispatched.
 - **Superagent Tickets**: acknowledgements, answers and results come back with their tags. A chat-only prototype with no GitHub repository or CLI can still take work.
 - **SQLite**: messages, topics and message-topic links live in indexed tables; an old `chat.json` is migrated once.
 - **WeChat remote access**: the bridge starts on demand when the panel entry opens; it defaults to the general chat and uses `@topic` in natural language. There is no command system.
