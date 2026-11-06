@@ -45,6 +45,34 @@ describe('SQLite chat store', () => {
     expect(store.stats()).toEqual({ messages: 2, topics: 2 })
   })
 
+  it('pages the stream, a topic and the untagged filter backwards from the newest message', () => {
+    const { store } = open()
+    const at = '2026-01-01T00:00:00.000Z'
+    const design = store.ensureTopic('Design', at)
+    store.appendUser({ id: 'u1', text: 'one', at, tags: [] })
+    store.appendAgent({ id: 'u2', text: 'two', at, tags: [design.id] })
+    store.appendUser({ id: 'u3', text: 'three', at, tags: [] })
+    store.appendAgent({ id: 'u4', text: 'four', at, tags: [design.id] })
+    store.appendUser({ id: 'u5', text: 'five', at, tags: [] })
+
+    const newest = store.page({ limit: 2 })
+    expect(newest.messages.map(message => message.id)).toEqual(['u4', 'u5'])
+    expect(newest.hasOlder).toBe(true)
+    const middle = store.page({ limit: 2, before: 'u4' })
+    expect(middle.messages.map(message => message.id)).toEqual(['u2', 'u3'])
+    expect(middle.hasOlder).toBe(true)
+    const oldest = store.page({ limit: 2, before: 'u2' })
+    expect(oldest.messages.map(message => message.id)).toEqual(['u1'])
+    expect(oldest.hasOlder).toBe(false)
+    expect(store.page({ limit: 2, before: 'missing' }).messages).toEqual([])
+
+    expect(store.page({ topicId: design.id, limit: 1 }).messages.map(message => message.id)).toEqual(['u4'])
+    expect(store.page({ topicId: design.id, limit: 1, before: 'u4' }).messages.map(message => message.id)).toEqual(['u2'])
+    expect(store.page({ untagged: true, limit: 2 }).messages.map(message => message.id)).toEqual(['u3', 'u5'])
+    expect(store.page({ untagged: true, limit: 2, before: 'u3' }).messages.map(message => message.id)).toEqual(['u1'])
+    expect(store.untaggedCount()).toBe(3)
+  })
+
   it('resolves tag names, renames topics and rejects duplicate names', () => {
     const { store } = open()
     const at = '2026-01-01T00:00:00.000Z'

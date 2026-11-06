@@ -245,19 +245,44 @@ export class ChatStore {
 
   /** Messages in the general chat, or those carrying one topic, oldest first and bounded by the view limit. */
   messages(topicId?: string, limit = VIEW_LIMIT): ChatMessage[] {
-    const rows = topicId
-      ? this.db.prepare([
-        'SELECT m.id, m.role, m.text, m.at, m.kind, m.via,',
-        '(SELECT GROUP_CONCAT(topic_id, \',\') FROM (SELECT topic_id FROM message_topic WHERE message_id = m.id ORDER BY ordinal)) AS tags',
-        'FROM message m JOIN message_topic mt ON mt.message_id = m.id',
-        'WHERE mt.topic_id = ? ORDER BY m.seq DESC LIMIT ?',
-      ].join(' ')).all(topicId, limit) as unknown as MessageRow[]
-      : this.db.prepare([
-        'SELECT m.id, m.role, m.text, m.at, m.kind, m.via,',
-        '(SELECT GROUP_CONCAT(topic_id, \',\') FROM (SELECT topic_id FROM message_topic WHERE message_id = m.id ORDER BY ordinal)) AS tags',
-        'FROM message m ORDER BY m.seq DESC LIMIT ?',
-      ].join(' ')).all(limit) as unknown as MessageRow[]
-    return rows.reverse().map(messageOf)
+    return this.page({ ...(topicId ? { topicId } : {}), limit }).messages
+  }
+
+  /**
+   * One page of messages for the general stream, a topic, or the untagged filter. Pages read
+   * newest-first from storage and come back oldest-first; `before` is the previous page's oldest id.
+   */
+  page(input: { topicId?: string; untagged?: boolean; before?: string; limit: number }): { messages: ChatMessage[]; hasOlder: boolean } {
+    const where: string[] = []
+    const params: (string | number)[] = []
+    if (input.topicId) {
+      where.push('mt.topic_id = ?')
+      params.push(input.topicId)
+    }
+    if (input.untagged) where.push('NOT EXISTS (SELECT 1 FROM message_topic ut WHERE ut.message_id = m.id)')
+    if (input.before) {
+      where.push('m.seq < COALESCE((SELECT seq FROM message WHERE id = ?), 0)')
+      params.push(input.before)
+    }
+    const rows = this.db.prepare([
+      'SELECT m.id, m.role, m.text, m.at, m.kind, m.via,',
+      '(SELECT GROUP_CONCAT(topic_id, \',\') FROM (SELECT topic_id FROM message_topic WHERE message_id = m.id ORDER BY ordinal)) AS tags',
+      'FROM message m',
+      input.topicId ? 'JOIN message_topic mt ON mt.message_id = m.id' : '',
+      where.length ? 'WHERE ' + where.join(' AND ') : '',
+      'ORDER BY m.seq DESC LIMIT ?',
+    ].filter(Boolean).join(' ')).all(...params, input.limit + 1) as unknown as MessageRow[]
+    const hasOlder = rows.length > input.limit
+    return { messages: rows.slice(0, input.limit).reverse().map(messageOf), hasOlder }
+  }
+
+  /** How many messages carry no topic tag. */
+  untaggedCount(): number {
+    const row = this.db.prepare([
+      'SELECT COUNT(*) AS count FROM message m',
+      'WHERE NOT EXISTS (SELECT 1 FROM message_topic mt WHERE mt.message_id = m.id)',
+    ].join(' ')).get() as unknown as { count: number }
+    return row.count
   }
 
   /** Counts for the health endpoint. */

@@ -53,9 +53,12 @@ export class SuperchatClient {
     return body;
   }
 
-  /** 读通用聊天，或一个主题的过滤视图。 */
+  /** 读通用聊天，或一个主题的过滤视图；桥需要完整的最近窗口来定位已投递游标。 */
   view(topic) {
-    return this.request(this.path + '/chat' + (topic ? '?topic=' + encodeURIComponent(topic) : ''));
+    const params = new URLSearchParams();
+    if (topic) params.set('topic', topic);
+    params.set('limit', '200');
+    return this.request(this.path + '/chat?' + params.toString());
   }
 
   /** 发一条消息；tags 是主题名称，服务端会复用或创建主题。 */

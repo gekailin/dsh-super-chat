@@ -115,6 +115,54 @@ describe('Super Chat HTTP API', () => {
     busy.mockReturnValue(false)
   })
 
+  it('pages topic views backwards and filters the untagged view with a count', async () => {
+    const first = await (await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: 'paged topic one', tags: ['Paging'], clientId: 'page-t1' }),
+    })).json() as { topic: { id: string } }
+    const second = await (await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: 'paged topic two', tags: ['Paging'], clientId: 'page-t2' }),
+    })).json() as { topic: { id: string } }
+    const topicId = first.topic.id
+    expect(second.topic.id).toBe(topicId)
+
+    const newest = await (await call('/super-chat/api/chat?topic=' + topicId + '&limit=1')).json() as {
+      messages: { id: string }[]; hasOlder: boolean; olderCursor?: string; untaggedCount: number
+    }
+    expect(newest.messages.map(message => message.id)).toEqual(['page-t2'])
+    expect(newest.hasOlder).toBe(true)
+    expect(newest.olderCursor).toBe('page-t2')
+    expect(newest.untaggedCount).toBeGreaterThanOrEqual(0)
+
+    const older = await (await call('/super-chat/api/chat?topic=' + topicId + '&limit=1&before=' + newest.olderCursor)).json() as typeof newest
+    expect(older.messages.map(message => message.id)).toEqual(['page-t1'])
+    expect(older.hasOlder).toBe(false)
+
+    await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: 'untagged paging a', clientId: 'page-a' }),
+    })
+    await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: 'untagged paging b', clientId: 'page-b' }),
+    })
+    const untagged = await (await call('/super-chat/api/chat?untagged=1&limit=2')).json() as {
+      messages: { id: string; tags: string[] }[]; hasOlder: boolean; olderCursor?: string; untaggedCount: number
+    }
+    expect(untagged.messages.map(message => message.id)).toEqual(['page-a', 'page-b'])
+    expect(untagged.messages.every(message => message.tags.length === 0)).toBe(true)
+    expect(untagged.hasOlder).toBe(true)
+    expect(untagged.olderCursor).toBe('page-a')
+    expect(untagged.untaggedCount).toBeGreaterThanOrEqual(2)
+
+    const untaggedOlder = await (await call('/super-chat/api/chat?untagged=1&limit=2&before=' + untagged.olderCursor)).json() as typeof untagged
+    expect(untaggedOlder.messages.every(message => message.tags.length === 0)).toBe(true)
+    expect(untaggedOlder.messages.some(message => message.id === 'page-a' || message.id === 'page-b')).toBe(false)
+
+    expect((await call('/super-chat/api/chat?limit=0')).status).toBe(400)
+    expect((await call('/super-chat/api/chat?limit=201')).status).toBe(400)
+    expect((await call('/super-chat/api/chat?limit=many')).status).toBe(400)
+    expect((await call('/super-chat/api/chat?before=bad!id')).status).toBe(400)
+    expect((await call('/super-chat/api/chat?topic=' + topicId + '&untagged=1')).status).toBe(400)
+  })
+
   it('runs auto-tagging on demand and reports the count with the refreshed view', async () => {
     const response = await call('/super-chat/api/chat/tag', { method: 'POST', body: JSON.stringify({}) })
     expect(response.status).toBe(200)
