@@ -63,6 +63,12 @@ it('opens the WeChat access window from the sidebar foot and shows the login QR 
   expect(document.body.textContent).toContain(zh.chatWechatWaiting)
   // The window fetches one code on open; it does not keep requesting new ones.
   expect(calls.filter(item => item.endsWith('/wechat/login'))).toHaveLength(1)
+  const dialog = document.querySelector<HTMLElement>('.chat-wechat-window')!
+  dialog.focus()
+  await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+  })
+  expect(dialog.contains(document.activeElement)).toBe(true)
   const close = document.querySelector<HTMLButtonElement>('.chat-wechat-close')!
   await act(async () => { close.click() })
   expect(document.querySelector('.chat-wechat-dialog')).toBeNull()

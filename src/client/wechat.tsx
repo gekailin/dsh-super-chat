@@ -34,7 +34,10 @@ async function startBridge(): Promise<void> {
 }
 
 async function bridge<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(BRIDGE + path, init)
+  const headers = init?.method === 'POST'
+    ? { 'x-super-chat-request': '1', ...(init.body ? { 'content-type': 'application/json' } : {}), ...init.headers }
+    : init?.headers
+  const response = await fetch(BRIDGE + path, init ? { ...init, ...(headers ? { headers } : {}) } : undefined)
   const body = await response.json().catch(() => ({})) as { error?: string }
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`)
   return body as T
@@ -49,8 +52,10 @@ function trapTab(event: globalThis.KeyboardEvent, container: HTMLElement): void 
   )]
   if (focusable.length === 0) return
   const first = focusable[0]!, last = focusable[focusable.length - 1]!
-  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+  const active = document.activeElement
+  const outside = !active || active === container || !container.contains(active)
+  if (event.shiftKey && (active === first || outside)) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && (active === last || outside)) { event.preventDefault(); first.focus() }
 }
 
 /** The two speech bubbles of WeChat, drawn to match the panel's other 1.8px line icons. */
