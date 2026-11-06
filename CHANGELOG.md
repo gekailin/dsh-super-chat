@@ -9,6 +9,7 @@
 - Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.
 - The panel's "General chat" is now "All messages", with a new "<No topic>" view that lists only untagged messages.
 - The workspace sidebar gains a Superagent group: with the prototype installed, the orchestrator and every ticket worker share one group with the orchestrator pinned first. The merge is presentation-only and does not move a Session's working directory.
+- Fixed data consistency and concurrency edge cases: evict the oldest unused topic at `TOPIC_LIMIT` while protecting newly resolved tags in the same batch, quarantine corrupt SQLite databases or stale schemas alongside `-wal`/`-shm` sidecars, unregister the Source if `SuperagentChat.stop()` races with connection startup, sequence `send`/`stop` requests and sync `topicId` after tagged sends, ignore Enter during IME composition, and harden WeChat bridge origin/header checks, login/logout races, inbound `seen` persistence and 4xx outbox handling.
 
 ## 0.1.0
 

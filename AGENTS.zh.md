@@ -13,7 +13,7 @@
   - 根目录的独立 Super Chat 插件（`src/`、`tests/`、`docs/`）：单流聊天面板、宿主 API、`chat.sqlite` 存储；superagent 不可用时只有一个兜底 DSH Session。
   - `wechat/`：插件内置的微信「文件传输助手」桥，独立 Node.js 进程，拥有自己的登录态；打开微信接入时按需启动，默认通用聊天，用 `@主题` 自然语言打标。
 - Superagent 集成（核心）：插件通过 `dsh-superagent-prototype` 的公开 `orchestrator` 服务注册 `super-chat` Source，把消息变成工单；没有该服务时回退到单个通用 DSH Session 作为降级路径。原型代码由它自己的 checkout 维护，本仓库不修改它。
-- 只使用公开服务：根插件注入 `webServer`、`sessionController`、`agents`、`permissionPresets`；Superagent 集成只使用 `orchestrator` 的结构化接口。不要 import 其他插件的内部模块。
+- 只使用公开服务：根插件注入 `webServer`、`sessionController`、`agents`、`permissionPresets`、`workspaceRegistry`；Superagent 集成只使用 `orchestrator` 的结构化接口。不要 import 其他插件的内部模块。
 
 ## 代码规范
 

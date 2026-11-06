@@ -153,7 +153,7 @@ The bridge listens on `127.0.0.1:8790`; the on-demand manager stores login and c
 - Text only; the panel does not accept images or file attachments yet.
 - Replies arrive by polling (2.5 s), not token streaming.
 - Topics are labels and dispatch cues, not strict partitions; the first tag chooses the dispatch thread and Superagent may still decide otherwise.
-- The fallback has a single Session, so every message shares one model context; replies appear in the general chat (tagged replies inherit the last user message's tags).
+- The fallback has a single Session, so every message shares one model context; tagged replies inherit their turn's tags and appear in both All messages and their matching topic views.
 - The plugin does not ship a ticket pipeline or worker pool; those come from `dsh-superagent-prototype`.
 - Multi-user behavior is limited to what the DSH Web Server already provides.
 - The panel uses absolute `/super-chat/api` paths and checks the configured bind host; path-prefix or different-authority reverse proxies are not supported.
@@ -171,7 +171,7 @@ cd wechat && npm test
 
 For a local run, install the checkout into a disposable profile on an unused port and point `stateDir` at a temporary directory.
 
-Layout: `src/index.ts` (host entry), `src/store.ts` (SQLite), `src/session.ts` (fallback Session), `src/transport.ts` (transport selection), `src/superagent.ts` (super-chat Source and chat-only patch), `src/api.ts` (HTTP API), `src/monkey.ts` (list patch), `src/protocol.ts` (shared types), `src/client/` (browser half).
+Layout: `src/index.ts` (host entry), `src/store.ts` (SQLite), `src/session.ts` (fallback Session), `src/transport.ts` (transport selection), `src/superagent.ts` (super-chat Source and chat-only patch), `src/tagger.ts` (auto-tagging), `src/wechat-bridge.ts` (WeChat bridge lifecycle), `src/workspace-group.ts` and `src/workspace-group-host.ts` (Superagent workspace grouping), `src/api.ts` (HTTP API), `src/monkey.ts` (list patch), `src/protocol.ts` (shared types), `src/client/` (browser half).
 
 ## License
 

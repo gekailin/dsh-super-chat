@@ -13,7 +13,7 @@ A Super Chat plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepse
   - The standalone Super Chat plugin at the root (`src/`, `tests/`, `docs/`): the single-stream panel, host API, `chat.sqlite` store, and one fallback DSH Session when superagent is unavailable.
   - `wechat/`: the plugin's built-in WeChat File Transfer Helper bridge, a separate Node.js process that owns its login and starts on demand when WeChat access opens; it defaults to the general chat with `@topic` natural-language tags.
 - Superagent integration (core): the plugin registers a `super-chat` Source through `dsh-superagent-prototype`'s public `orchestrator` service and turns messages into Tickets. Without that service it falls back to one general DSH Session as a degraded path. The prototype is maintained in its own checkout; this repository must not modify it.
-- Use public services only: the root plugin injects `webServer`, `sessionController`, `agents`, and `permissionPresets`; the superagent integration uses only the structural interface of `orchestrator`. Never import another plugin's internals.
+- Use public services only: the root plugin injects `webServer`, `sessionController`, `agents`, `permissionPresets`, and `workspaceRegistry`; the superagent integration uses only the structural interface of `orchestrator`. Never import another plugin's internals.
 
 ## Coding standard
 

@@ -24,6 +24,9 @@
 | `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
 | `src/client/chat.tsx` | browser | 全部消息、主题视图、`<无主题>` 过滤、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
+| `src/client/text.ts` | browser | 消息元数据的相对时间与简短日期格式化。 |
+| `src/client/locales.ts` | browser | 面板与微信弹窗的简体中文、英文词典。 |
+| `src/client/dsh.ts` | browser | DSH 浏览器插件上下文（`slots`、`locale`、`layout`、`workspaces`）的最小本地类型契约。 |
 | `src/client/wechat.tsx` | browser | 微信接入入口和扫码/状态/退出窗口，背后是 `127.0.0.1:8790` 的本地桥。 |
 
 浏览器半边运行时不 import DSH 包：只依赖 `react`（由 DSH module loader 提供），并通过 client plugin context 接收 `slots` 和 `locale`。
