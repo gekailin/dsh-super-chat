@@ -38,6 +38,7 @@ export async function beginLogin({
   appId = FILEHELPER_APPID,
   pollMs = 1500,
   maxWaitMs = 180000,
+  signal,
   onStatus = () => {},
 } = {}) {
   const headers = { 'User-Agent': UA, Referer: base + '/' };
@@ -46,14 +47,14 @@ export async function beginLogin({
   const js = await (
     await fetch(
       loginBase + '/jslogin?appid=' + appId + '&redirect_uri=' + redirect + '&fun=new&lang=zh_CN&_=' + Date.now(),
-      { headers }
+      { headers, ...(signal ? { signal } : {}) }
     )
   ).text();
   const uuid = /uuid\s*=\s*"([^"]+)"/.exec(js)?.[1];
   if (!uuid) throw new Error('jslogin 失败: ' + js.slice(0, 160));
 
   const qrUrl = loginBase + '/qrcode/' + uuid;
-  const qr = await fetch(qrUrl, { headers });
+  const qr = await fetch(qrUrl, { headers, ...(signal ? { signal } : {}) });
   if (!qr.ok) throw new Error('取二维码失败 HTTP ' + qr.status);
   const qrBuffer = Buffer.from(await qr.arrayBuffer());
 
@@ -69,12 +70,17 @@ export async function beginLogin({
     const started = Date.now();
     let lastCode = '';
     while (Date.now() - started < maxWaitMs) {
+      if (signal?.aborted) {
+        const error = new Error('扫码已取消');
+        error.code = 'aborted';
+        throw error;
+      }
       const text = await (
         await fetch(
           loginBase +
             '/cgi-bin/mmwebwx-bin/login?loginicon=true&uuid=' + encodeURIComponent(uuid) +
             '&tip=0&r=' + ~Date.now() + '&_=' + Date.now(),
-          { headers }
+          { headers, ...(signal ? { signal } : {}) }
         )
       ).text();
       const code = /window\.code\s*=\s*(\d+)/.exec(text)?.[1];
@@ -86,7 +92,7 @@ export async function beginLogin({
         const redirectUri = /redirect_uri\s*=\s*"([^"]+)"/.exec(text)?.[1];
         if (!redirectUri) throw new Error('登录成功但没拿到 redirect_uri');
         update('starting', '正在完成登录');
-        return await finishLogin({ redirectUri, base, appId, headers, onStatus });
+        return await finishLogin({ redirectUri, base, appId, headers, signal, onStatus });
       } else if (code === '400') {
         const error = new Error('二维码已失效，请重新获取');
         error.code = 'expired';
@@ -119,11 +125,11 @@ export async function login({
   return await flow.done;
 }
 
-async function finishLogin({ redirectUri, base, appId, headers, onStatus }) {
+async function finishLogin({ redirectUri, base, appId, headers, signal, onStatus }) {
   const url = new URL(redirectUri);
   url.searchParams.set('fun', 'new');
   url.searchParams.set('version', 'v2');
-  const res = await fetch(url, { headers: { ...headers, mmweb_appid: appId } });
+  const res = await fetch(url, { headers: { ...headers, mmweb_appid: appId }, ...(signal ? { signal } : {}) });
   const xml = await res.text();
   const ret = tag(xml, 'ret');
   if (ret && ret !== '0') throw new Error('webwxnewloginpage 失败 ret=' + ret + ': ' + xml.slice(0, 160));

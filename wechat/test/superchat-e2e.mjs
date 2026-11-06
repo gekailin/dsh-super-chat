@@ -26,6 +26,7 @@ async function waitFor(fn, ms = 5000) {
 
 assert.deepEqual(extractTags('帮我看下 @设计 这个页面'), { text: '帮我看下 这个页面', tags: ['设计'] });
 assert.deepEqual(extractTags('帮我看下，@设计 这个页面'), { text: '帮我看下， 这个页面', tags: ['设计'] });
+assert.deepEqual(extractTags('@设计：帮我看下'), { text: '：帮我看下', tags: ['设计'] });
 assert.deepEqual(extractTags('@设计 @紧急 两个标签'), { text: '两个标签', tags: ['设计', '紧急'] });
 assert.deepEqual(extractTags('邮箱 a@b.com 不是标签'), { text: '邮箱 a@b.com 不是标签', tags: [] });
 
@@ -113,7 +114,11 @@ try {
   assert.equal(reloaded.peer('filehelper').initialized, true);
   assert.ok(reloaded.peer('filehelper').lastDeliveredId);
 
-  // 8) 暂存：Super Chat 不可达时消息进 outbox，恢复后带标签补发。
+  // 8) 暂存：Super Chat 不可达时消息进 outbox，恢复后带标签补发；4xx 错误直接提示且不进 outbox。
+  const badReply = await agent.reply({ text: '   ', msg: { id: 'bad-400' } });
+  assert.match(badReply?.text ?? '', /发送失败/);
+  assert.equal(state.peer('filehelper').outbox.length, 0);
+
   await sc.close();
   await wx.inject({ from: '@me', to: 'filehelper', content: '离线消息 @设计' });
   await waitFor(() => contents().some((text) => text.includes('已暂存')));

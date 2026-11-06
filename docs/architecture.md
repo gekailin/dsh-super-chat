@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the single chat stream, topic tags, SQLite storage, superagent dispatch, the host/browser split, the HTTP contract, and the two narrow patches.
+This document describes the single chat stream, topic tags, SQLite storage, superagent dispatch, workspace grouping, the host/browser split, the HTTP contract, and the two narrow patches.
 
 [简体中文](architecture.zh.md) | English
 
@@ -21,8 +21,12 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/workspace-group-host.ts` | host | Ensures the prototype state-directory Workspace, attaches and pins the orchestrator Session. |
 | `src/protocol.ts` | both | Shared ids, limits, message/topic shapes and text helpers. |
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
+| `src/client/workspace-group.ts` | browser | Wraps the Workspace snapshot to fold ticket Workspaces into the Superagent group. |
 | `src/client/chat.tsx` | browser | All messages, topic views, the `<No topic>` filter, tag input, new topics, per-message tag editing, stop and polling. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
+| `src/client/text.ts` | browser | Relative and short-date timestamp formatting for message metadata. |
+| `src/client/locales.ts` | browser | Simplified Chinese and English dictionaries for the panel and WeChat dialog. |
+| `src/client/dsh.ts` | browser | Minimal local type contracts for the DSH client plugin context (`slots`, `locale`, `layout`, `workspaces`). |
 | `src/client/wechat.tsx` | browser | WeChat access entry and scan/status/sign-out window backed by the local bridge on `127.0.0.1:8790`. |
 
 The browser half has no runtime imports of DSH packages: it requires only `react` (provided by the DSH module loader) and receives `slots` and `locale` through the client plugin context.

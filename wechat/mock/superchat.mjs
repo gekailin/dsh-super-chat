@@ -71,8 +71,10 @@ export async function startSuperchatMock({ port = 0, host = '127.0.0.1' } = {}) 
       }
       if (url.pathname === '/super-chat/api/chat' && req.method === 'POST') {
         const body = await read();
+        const text = typeof body.text === 'string' ? body.text.trim() : '';
+        if (!text) return json({ error: 'A message is required' }, 400);
         const tags = Array.isArray(body.tags) ? body.tags.map(topic).filter(Boolean).map((item) => item.name) : [];
-        const entry = message('user', String(body.text ?? ''), tags);
+        const entry = message('user', text, tags);
         state.posts.push({ text: entry.text, tags, clientId: body.clientId ?? null, via: body.via ?? null });
         const selected = body.topic || state.topics.find((item) => entry.tags.includes(item.id))?.id;
         return json({ result: state.postResult, ...view(selected) });

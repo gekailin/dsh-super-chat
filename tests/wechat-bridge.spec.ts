@@ -109,4 +109,19 @@ describe('WechatBridge', () => {
     dispose()
     await bridge.stop()
   })
+
+  it('does not leave an orphan process when stop() races with ensure()', async () => {
+    const { packageRoot, stateDir } = fixture()
+    const child = fakeChild()
+    const spawn = vi.fn(() => child)
+    let resolveProbe!: (ok: boolean) => void
+    const probe = vi.fn(() => new Promise<boolean>(resolve => { resolveProbe = resolve }))
+    const bridge = new WechatBridge({ stateDir, panelPort: 3099, packageRoot, port: 9876, spawn: spawn as never, probe })
+
+    const ensuring = bridge.ensure()
+    await bridge.stop()
+    resolveProbe(false)
+    await expect(ensuring).rejects.toThrow('WeChat bridge is stopped')
+    expect(spawn).not.toHaveBeenCalled()
+  })
 })

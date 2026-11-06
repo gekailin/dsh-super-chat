@@ -51,23 +51,55 @@ function json(res, obj, code = 200) {
   res.end(JSON.stringify(obj));
 }
 
+const MAX_BODY = 64 * 1024;
+const allowedOrigins = (() => {
+  try {
+    const u = new URL(superchatUrl);
+    const portSuffix = u.port ? ':' + u.port : '';
+    return new Set([
+      u.origin,
+      `${u.protocol}//127.0.0.1${portSuffix}`,
+      `${u.protocol}//localhost${portSuffix}`,
+      `${u.protocol}//[::1]${portSuffix}`,
+    ]);
+  } catch {
+    return new Set(['http://127.0.0.1:3080', 'http://localhost:3080', 'http://[::1]:3080']);
+  }
+})();
+
+function allowedOrigin(origin) {
+  return !origin || allowedOrigins.has(origin);
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (c) => chunks.push(c));
+    let size = 0;
+    req.on('data', (c) => {
+      const buf = Buffer.from(c);
+      size += buf.length;
+      if (size > MAX_BODY) {
+        const err = new Error('Request body exceeds ' + MAX_BODY + ' bytes');
+        err.status = 413;
+        reject(err);
+        req.destroy();
+        return;
+      }
+      chunks.push(buf);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
 
-/** 面板在 DSH Web 端口（默认 3080），桥在 127.0.0.1:8790；只对本机页面开放跨域。 */
+/** 面板在 DSH Web 端口（默认 3080），桥在 127.0.0.1:8790；只对面板精确同源开放跨域。 */
 function applyCors(req, res) {
   const origin = req.headers.origin;
-  if (!origin || !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return;
+  if (!origin || !allowedOrigins.has(origin)) return;
   res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'origin');
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-  res.setHeader('access-control-allow-headers', 'content-type');
+  res.setHeader('access-control-allow-headers', 'content-type, ' + superchatHeader);
 }
 
 const health = {
@@ -78,6 +110,7 @@ const health = {
 let state = null;
 let session = null;
 let loginNonce = 0;
+let loginAbort = null;
 const login = { phase: 'idle', message: '', qr: null, startedAt: null };
 
 function statusView() {
@@ -185,6 +218,9 @@ async function startLogin() {
   if (['connecting', 'waiting', 'scanned', 'starting'].includes(login.phase)) return statusView();
 
   const nonce = ++loginNonce;
+  loginAbort?.abort();
+  const abort = new AbortController();
+  loginAbort = abort;
   login.phase = 'connecting';
   login.message = '正在获取二维码…';
   login.qr = null;
@@ -196,6 +232,7 @@ async function startLogin() {
       loginBase,
       base,
       appId,
+      signal: abort.signal,
       onStatus: (text, phase) => {
         if (nonce !== loginNonce) return;
         if (phase) login.phase = phase;
@@ -209,7 +246,10 @@ async function startLogin() {
     }
     return statusView();
   }
-  if (nonce !== loginNonce) return statusView();
+  if (nonce !== loginNonce) {
+    abort.abort();
+    return statusView();
+  }
 
   login.qr = 'data:image/jpeg;base64,' + flow.qr.toString('base64');
   const initial = flow.status();
@@ -222,9 +262,18 @@ async function startLogin() {
       login.phase = 'starting';
       login.message = '登录成功，正在连接…';
       await writeFile(credsPath, JSON.stringify(creds, null, 2) + '\n');
+      if (nonce !== loginNonce) {
+        await clearCreds();
+        return;
+      }
       try {
-        await startSession(creds);
-        if (nonce !== loginNonce) return;
+        const started = await startSession(creds);
+        if (nonce !== loginNonce) {
+          if (session === started) await stopSession({ notify: true });
+          else await started.stop({ notify: true }).catch(() => {});
+          await clearCreds();
+          return;
+        }
         login.phase = 'success';
         login.message = '已登录: ' + user.NickName;
         login.qr = null;
@@ -249,6 +298,8 @@ async function startLogin() {
 
 async function logout() {
   loginNonce += 1;
+  loginAbort?.abort();
+  loginAbort = null;
   const stopped = await stopSession({ notify: true });
   await clearCreds();
   login.phase = 'idle';
@@ -268,11 +319,17 @@ if (mode === 'superchat') {
 }
 
 const server = http.createServer(async (req, res) => {
+  if (!allowedOrigin(req.headers.origin)) {
+    return json(res, { error: 'Forbidden origin' }, 403);
+  }
   applyCors(req, res);
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
     return;
+  }
+  if (req.method === 'POST' && req.headers[superchatHeader] !== '1') {
+    return json(res, { error: 'Missing request header' }, 403);
   }
   try {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -282,14 +339,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/wechat/logout') return json(res, await logout());
     if (req.method === 'POST' && url.pathname === '/send') {
       if (!session) return json(res, { error: '微信未登录' }, 503);
-      const body = JSON.parse((await readBody(req)) || '{}');
-      if (!body.text) return json(res, { error: 'missing text' }, 400);
-      const msgId = await session.client.sendText(body.to || peer, body.text);
+      let body;
+      try {
+        body = JSON.parse((await readBody(req)) || '{}');
+      } catch (e) {
+        return json(res, { error: e.message }, e.status || 400);
+      }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || !body.text || typeof body.text !== 'string') {
+        return json(res, { error: 'missing text' }, 400);
+      }
+      if (body.to && body.to !== peer) return json(res, { error: 'invalid peer' }, 400);
+      const msgId = await session.client.sendText(peer, body.text);
       return json(res, { ok: true, msgId });
     }
     return json(res, { error: 'not found' }, 404);
   } catch (e) {
-    return json(res, { error: e.message }, 500);
+    return json(res, { error: e.message }, e.status || 500);
   }
 });
 

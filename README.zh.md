@@ -153,7 +153,7 @@ SUPERCHAT_URL=http://127.0.0.1:3082 ./run-superchat.sh
 - 仅文本；面板暂不接受图片和文件附件。
 - 回复通过轮询（2.5 秒）到达，不做 token 级流式输出。
 - 主题是标签和分发线索，不是严格分区；第一条标签决定 dispatch thread，Superagent 仍可自行重新判断。
-- 兜底 Session 只有一条；此时所有消息共用一个模型上下文，回复只在通用聊天里可见（带标签的回复会继承最后一条用户消息的标签）。
+- 兜底 Session 只有一条；此时所有消息共用一个模型上下文，带标签的回复会继承当前回合用户消息的标签，同时出现在全部消息和对应主题视图里。
 - 插件不自带工单流水线或 worker 池；这些来自 `dsh-superagent-prototype`。
 - 多用户能力仅限于 DSH Web server 本身已有的能力。
 - 面板使用绝对的 `/super-chat/api` 路径并校验监听 host；不支持路径前缀或不同公开 authority 的反向代理。
@@ -171,7 +171,7 @@ cd wechat && npm test
 
 本地验证：把 checkout 安装进一个一次性 profile，用空闲端口启动，并把 `stateDir` 指到一次性目录。
 
-目录：`src/index.ts`（宿主入口）、`src/store.ts`（SQLite）、`src/session.ts`（兜底 Session）、`src/transport.ts`（transport 选择）、`src/superagent.ts`（super-chat Source 与 chat-only 补丁）、`src/api.ts`（HTTP API）、`src/monkey.ts`（列表 patch）、`src/protocol.ts`（共享类型）、`src/client/`（浏览器半边）。
+目录：`src/index.ts`（宿主入口）、`src/store.ts`（SQLite）、`src/session.ts`（兜底 Session）、`src/transport.ts`（transport 选择）、`src/superagent.ts`（super-chat Source 与 chat-only 补丁）、`src/tagger.ts`（自动打标签）、`src/wechat-bridge.ts`（微信桥生命周期）、`src/workspace-group.ts` 与 `src/workspace-group-host.ts`（Superagent 工作区分组）、`src/api.ts`（HTTP API）、`src/monkey.ts`（列表 patch）、`src/protocol.ts`（共享类型）、`src/client/`（浏览器半边）。
 
 ## 许可
 

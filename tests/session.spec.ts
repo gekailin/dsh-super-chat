@@ -79,10 +79,12 @@ describe('GeneralSession', () => {
 
     host.agents.get('super-chat-general')!.status = 'running'
     expect(session.busy()).toBe(true)
+    expect(session.busy(topic.id)).toBe(true)
+    expect(session.busy('tp-other')).toBe(false)
     host.agents.get('super-chat-general')!.status = 'idle'
     expect(session.busy()).toBe(false)
 
-    expect(await session.cancel()).toBe(true)
+    expect(await session.cancel(topic.id)).toBe(true)
     expect(host.cancels).toEqual([{ sessionId: 'super-chat-general' }])
     expect(await session.cancel()).toBe(true)
     expect(await session.cancel('tp-1')).toBe(false)

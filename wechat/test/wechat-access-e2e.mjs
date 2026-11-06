@@ -50,7 +50,12 @@ child.stdout.on('data', (chunk) => { output += chunk; });
 child.stderr.on('data', (chunk) => { output += chunk; });
 
 const call = async (path, init = {}) => {
-  const response = await fetch(baseUrl + path, { ...init, headers: { origin, ...init.headers } });
+  const headers = {
+    origin,
+    ...(init.method === 'POST' ? { 'x-super-chat-request': '1' } : {}),
+    ...init.headers,
+  };
+  const response = await fetch(baseUrl + path, { ...init, headers });
   return { response, body: await response.json() };
 };
 
@@ -105,6 +110,12 @@ try {
   await assert.rejects(stat(credsPath));
   const send = await call('/send', { method: 'POST', body: JSON.stringify({ text: 'hi' }) });
   assert.equal(send.response.status, 503);
+
+  // 跨站/非白名单 Origin 与缺少请求头的 POST 均被拒绝。
+  const badOrigin = await fetch(baseUrl + '/wechat/status', { headers: { origin: 'http://127.0.0.1:9999' } });
+  assert.equal(badOrigin.status, 403);
+  const missingHeader = await fetch(baseUrl + '/wechat/login', { method: 'POST', headers: { origin } });
+  assert.equal(missingHeader.status, 403);
 
   console.log('✅ wechat access e2e ok');
 } finally {

@@ -1,9 +1,10 @@
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ChatStore } from '../src/store.ts'
-import { MESSAGE_LIMIT } from '../src/protocol.ts'
+import { MESSAGE_LIMIT, TOPIC_LIMIT } from '../src/protocol.ts'
 
 const opened: ChatStore[] = []
 const dirs: string[] = []
@@ -174,5 +175,63 @@ describe('SQLite chat store', () => {
       ['u2', []],
       ['a2', []],
     ])
+  })
+
+  it('evicts the oldest unused topic at TOPIC_LIMIT without dropping newly resolved tags in the same batch', () => {
+    const { store } = open()
+    const baseMs = Date.parse('2026-01-01T00:00:00.000Z')
+    const freeOldest = store.ensureTopic('FreeOldest', new Date(baseMs).toISOString())
+    const freeNewer = store.ensureTopic('FreeNewer', new Date(baseMs + 1000).toISOString())
+    for (let i = 2; i < TOPIC_LIMIT; i++) {
+      const t = store.ensureTopic('Used-' + i, new Date(baseMs + i * 1000).toISOString())
+      store.appendUser({ id: 'u-' + i, text: 'msg', at: new Date(baseMs + i * 1000).toISOString(), tags: [t.id] })
+    }
+    expect(store.stats().topics).toBe(TOPIC_LIMIT)
+
+    const resolved = store.resolveTags(['Alpha', 'Beta'], new Date(baseMs + 500_000).toISOString())
+    expect(resolved.map(t => t.name)).toEqual(['Alpha', 'Beta'])
+    expect(store.topic(freeOldest.id)).toBeUndefined()
+    expect(store.topic(freeNewer.id)).toBeUndefined()
+    expect(store.topic(resolved[0]!.id)?.name).toBe('Alpha')
+    expect(store.topic(resolved[1]!.id)?.name).toBe('Beta')
+
+    const { message } = store.appendUser({
+      id: 'u-batch',
+      text: 'both tags',
+      at: new Date(baseMs + 500_000).toISOString(),
+      tags: resolved.map(t => t.id),
+    })
+    expect(message.tags).toEqual([resolved[0]!.id, resolved[1]!.id])
+    expect(() => store.ensureTopic('Overflow', new Date(baseMs + 600_000).toISOString())).toThrow('Too many topics')
+  })
+
+  it('quarantines a corrupt SQLite database or stale schema along with WAL/SHM sidecars', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'super-chat-store-corrupt-'))
+    dirs.push(dir)
+    const file = join(dir, 'chat.sqlite')
+    writeFileSync(file, 'not a sqlite file')
+    writeFileSync(file + '-wal', 'stale wal')
+    writeFileSync(file + '-shm', 'stale shm')
+
+    const recovered = new ChatStore(file)
+    opened.push(recovered)
+    expect(recovered.topics()).toEqual([])
+    const files = readdirSync(dir)
+    expect(files.some(name => name.startsWith('chat.sqlite.corrupt-'))).toBe(true)
+    expect(files.some(name => name.startsWith('chat.sqlite-wal.corrupt-'))).toBe(true)
+    expect(files.some(name => name.startsWith('chat.sqlite-shm.corrupt-'))).toBe(true)
+    recovered.close()
+
+    const badSchemaDir = mkdtempSync(join(tmpdir(), 'super-chat-store-schema-'))
+    dirs.push(badSchemaDir)
+    const badSchemaFile = join(badSchemaDir, 'chat.sqlite')
+    const rawDb = new DatabaseSync(badSchemaFile)
+    rawDb.exec('CREATE TABLE topic (id TEXT PRIMARY KEY)')
+    rawDb.close()
+
+    const schemaRecovered = new ChatStore(badSchemaFile)
+    opened.push(schemaRecovered)
+    expect(schemaRecovered.ensureTopic('Works', '2026-01-01T00:00:00.000Z').name).toBe('Works')
+    expect(readdirSync(badSchemaDir).some(name => name.startsWith('chat.sqlite.corrupt-'))).toBe(true)
   })
 })
