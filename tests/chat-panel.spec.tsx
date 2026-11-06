@@ -21,6 +21,7 @@ const general = {
     { id: 'm1', role: 'user', text: 'general request', at, tags: [design.id] },
     { id: 'm3', role: 'user', text: 'untagged question', at, tags: [] },
   ],
+  untaggedCount: 1,
   mode: 'superagent',
   busy: false,
 }
@@ -28,6 +29,7 @@ const topic = {
   topic: design,
   topics: [design, urgent],
   messages: [{ id: 'm2', role: 'agent', text: 'topic reply', at, tags: [design.id] }],
+  untaggedCount: 1,
   mode: 'superagent',
   busy: false,
 }
@@ -55,7 +57,12 @@ async function render(initial: typeof general = general) {
     }
     if (String(url).includes('/topics')) return Response.json({ topic: urgent, topics: [design, urgent] })
     if (init?.method === 'POST') return Response.json({ result: 'stored', ...initial })
-    return Response.json(new URL(String(url), 'http://127.0.0.1').searchParams.get('topic') ? topic : initial)
+    const params = new URL(String(url), 'http://127.0.0.1').searchParams
+    if (params.get('untagged') === '1') {
+      const messages = initial.messages.filter(message => message.tags.length === 0)
+      return Response.json({ ...initial, messages, untaggedCount: messages.length })
+    }
+    return Response.json(params.get('topic') ? topic : initial)
   }))
   const container = document.createElement('div')
   document.body.append(container)
@@ -200,6 +207,49 @@ it('syncs topicId when sending a tagged message from All messages and ignores IM
   expect(designRow.getAttribute('data-active')).toBe('true')
   expect(designRow.getAttribute('aria-current')).toBe('page')
 
+  act(() => root.unmount())
+  container.remove()
+})
+
+it('shows the untagged count and loads older messages when the list is scrolled to the top', async () => {
+  const newest = [
+    { id: 'n3', role: 'user', text: 'newest question', at, tags: [] },
+    { id: 'n4', role: 'agent', text: 'newest reply', at, tags: [] },
+  ]
+  const older = [
+    { id: 'n1', role: 'user', text: 'older question', at, tags: [] },
+    { id: 'n2', role: 'agent', text: 'older reply', at, tags: [] },
+  ]
+  const calls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    calls.push(String(url))
+    if (String(url).includes('before=n3')) {
+      return Response.json({ topics: [], messages: older, hasOlder: false, untaggedCount: 4, mode: 'superagent' })
+    }
+    return Response.json({ topics: [], messages: newest, hasOlder: true, olderCursor: 'n3', untaggedCount: 4, mode: 'superagent' })
+  }))
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => { root.render(<ChatPanel t={t} />) })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  const untaggedRow = [...container.querySelectorAll<HTMLButtonElement>('.chat-topic-row')]
+    .find(row => row.textContent?.includes(zh.untagged))!
+  expect(untaggedRow.textContent).toContain('4')
+  expect([...container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual(['newest question', 'newest reply'])
+  expect(container.querySelector('.chat-older-hint')?.textContent).toBe(zh.olderHint)
+
+  const messages = container.querySelector('.chat-messages')!
+  messages.scrollTop = 0
+  await act(async () => { messages.dispatchEvent(new Event('scroll', { bubbles: true })) })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  expect(calls.some(url => url.includes('before=n3'))).toBe(true)
+  expect([...container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual([
+    'older question', 'older reply', 'newest question', 'newest reply',
+  ])
+  expect(container.querySelector('.chat-older-hint')).toBeNull()
   act(() => root.unmount())
   container.remove()
 })

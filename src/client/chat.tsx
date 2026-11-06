@@ -1,5 +1,5 @@
 /** Super Chat panel: one general stream with named topic tags, plus optional WeChat access. */
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { sameTopicName, type ChatMessage, type ChatView, type Topic } from '../protocol.ts'
 import type { T } from './locales.ts'
 import { when } from './text.ts'
@@ -16,6 +16,8 @@ const DEFAULT_WIDTH = 248
 const MIN_WIDTH = 180
 const MAX_WIDTH = 420
 const POLL_MS = 2500
+const OLDER_SCROLL_TOP = 80
+const BOTTOM_DISTANCE = 48
 
 class ChatError extends Error {
   constructor(message: string, readonly status: number) { super(message) }
@@ -55,6 +57,51 @@ const readWidth = (): number => {
   return Number.isFinite(value) ? clampWidth(value) : DEFAULT_WIDTH
 }
 
+/** One page of the selected view; `before` walks backwards from the loaded page's oldest message. */
+const pagePath = (topic: string | undefined, before?: string): string => {
+  const params = new URLSearchParams()
+  if (topic === UNTAGGED) params.set('untagged', '1')
+  else if (topic) params.set('topic', topic)
+  if (before) params.set('before', before)
+  const query = params.toString()
+  return '/chat' + (query ? '?' + query : '')
+}
+
+/**
+ * Fold a freshly polled page into the loaded stream without reordering it. Messages are append-only,
+ * so a page that does not include the newest loaded message is either stale (keep the stream) or
+ * separated by too big a gap (replace it rather than claim a false continuity).
+ */
+function mergeMessages(previous: ChatMessage[], incoming: ChatMessage[]): { messages: ChatMessage[]; reset: boolean } {
+  if (incoming.length === 0) return { messages: [], reset: true }
+  if (previous.length === 0) return { messages: incoming, reset: true }
+  const incomingIds = new Set(incoming.map(message => message.id))
+  if (!incomingIds.has(previous[previous.length - 1]!.id)) {
+    const previousIds = new Set(previous.map(message => message.id))
+    return incoming.some(message => previousIds.has(message.id))
+      ? { messages: previous, reset: false }
+      : { messages: incoming, reset: true }
+  }
+  const overlap = previous.findIndex(message => incomingIds.has(message.id))
+  return { messages: [...previous.slice(0, overlap), ...incoming], reset: false }
+}
+
+/** Keep the loaded older pages while refreshing topics, counts and the newest messages. */
+function mergeView(previous: ChatView, incoming: ChatView): ChatView {
+  const merged = mergeMessages(previous.messages, incoming.messages)
+  return {
+    ...previous,
+    topics: incoming.topics,
+    mode: incoming.mode,
+    busy: incoming.busy,
+    untaggedCount: incoming.untaggedCount ?? previous.untaggedCount,
+    messages: merged.messages,
+    ...(merged.reset ? { olderCursor: incoming.olderCursor, hasOlder: incoming.hasOlder ?? false } : {}),
+  }
+}
+
+type ScrollAnchor = { bottom: true } | { id: string; top: number }
+
 function Icon({ name, size = 16 }: { name: 'chat' | 'plus' | 'send' | 'stop' | 'tag' | 'tagOff' | 'x' | 'pencil'; size?: number }) {
   const path = name === 'chat'
     ? <><path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" /><path d="M8 9h8M8 13h5" /></>
@@ -90,39 +137,45 @@ export function ChatPanel({ t }: { t: T }) {
   const [tagNote, setTagNote] = useState<string>()
   const [offline, setOffline] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
   const [sending, setSending] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [editing, setEditing] = useState<{ id: string; tags: string[]; draft: string }>()
   const [savingTags, setSavingTags] = useState(false)
   const drag = useRef<{ x: number; width: number }>()
-  const end = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
   const latest = useRef(0)
+  const generation = useRef(0)
   const topicRef = useRef(topicId)
-  const lastMessage = useRef<string>()
+  const followBottom = useRef(true)
+  const anchor = useRef<ScrollAnchor>()
 
   const selectedTopic = view.topic
   const untaggedView = topicId === UNTAGGED
-  const shownMessages = untaggedView ? view.messages.filter(message => message.tags.length === 0) : view.messages
   const title = untaggedView ? t('untagged') : selectedTopic?.name || t('generalChat')
   const extraTags = tags.filter(name => !selectedTopic || !sameTopicName(name, selectedTopic.name))
   const autoTagAllowed = (value: string | undefined): boolean => value === undefined || value === UNTAGGED
 
   const load = useCallback(async (topic = topicId) => {
     const request = ++latest.current
+    const generationAt = ++generation.current
     const untagged = topic === UNTAGGED
     try {
-      const result = await ask<ChatView>('/chat' + (!untagged && topic ? '?topic=' + encodeURIComponent(topic) : ''))
-      if (request !== latest.current) return
+      const result = await ask<ChatView>(pagePath(topic))
+      if (request !== latest.current || generationAt !== generation.current) return
       const active = untagged ? UNTAGGED : result.topic?.id
       topicRef.current = active
       setTopicId(active)
       setView(result)
       setLoaded(true)
+      setLoadingOlder(false)
       setOffline(false)
+      followBottom.current = true
+      anchor.current = { bottom: true }
       if (active) store(ACTIVE_TOPIC, active)
       else forget(ACTIVE_TOPIC)
     } catch (failure) {
-      if (request !== latest.current) return
+      if (request !== latest.current || generationAt !== generation.current) return
       if (failure instanceof ChatError && failure.status === 404 && topic && topic !== UNTAGGED) {
         forget(ACTIVE_TOPIC)
         topicRef.current = undefined
@@ -134,23 +187,101 @@ export function ChatPanel({ t }: { t: T }) {
     }
   }, [topicId])
 
+  /** Polling is a read: it merges only the newest page and never reorders or drops loaded older pages. */
+  const poll = useCallback(async (topic = topicId) => {
+    const generationAt = generation.current
+    try {
+      const result = await ask<ChatView>(pagePath(topic))
+      if (generationAt !== generation.current) return
+      setView(previous => mergeView(previous, result))
+      setOffline(false)
+    } catch {
+      if (generationAt === generation.current) setOffline(true)
+    }
+  }, [topicId])
+
+  const loadOlder = useCallback(async () => {
+    const cursor = view.olderCursor
+    if (loadingOlder || !view.hasOlder || !cursor) return
+    const generationAt = generation.current
+    const requestTopic = topicRef.current
+    setLoadingOlder(true)
+    try {
+      const result = await ask<ChatView>(pagePath(requestTopic, cursor))
+      if (generationAt !== generation.current || requestTopic !== topicRef.current) return
+      // Keep the message under the viewport while the older page grows above it.
+      const element = list.current
+      const first = element?.querySelector<HTMLElement>('.chat-message')
+      const top = first?.getBoundingClientRect().top
+      const firstId = first?.dataset.messageId
+      if (firstId && top !== undefined) anchor.current = { id: firstId, top }
+      setView(previous => ({
+        ...previous,
+        messages: [
+          ...result.messages,
+          ...previous.messages.filter(message => !result.messages.some(item => item.id === message.id)),
+        ],
+        olderCursor: result.olderCursor,
+        hasOlder: result.hasOlder ?? false,
+        topics: result.topics,
+        untaggedCount: result.untaggedCount ?? previous.untaggedCount,
+      }))
+      setOffline(false)
+    } catch {
+      if (generationAt === generation.current) setOffline(true)
+    } finally {
+      if (generationAt === generation.current) setLoadingOlder(false)
+    }
+  }, [loadingOlder, topicId, view.hasOlder, view.messages, view.olderCursor])
+
   useEffect(() => {
     load().catch(failure => { if (!(failure instanceof ChatError)) setError(errorText(failure)) })
-    const timer = setInterval(() => { load().catch(() => {}) }, POLL_MS)
+    const timer = setInterval(() => { poll().catch(() => {}) }, POLL_MS)
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, poll])
   useEffect(() => { store(LAYOUT_KEY, String(width)) }, [width])
   useEffect(() => { store(DRAFT_KEY, draft) }, [draft])
-  useEffect(() => {
-    const newest = view.messages.at(-1)?.id
-    if (newest === lastMessage.current) return
-    lastMessage.current = newest
-    end.current?.scrollIntoView({ block: 'end' })
+  useLayoutEffect(() => {
+    const element = list.current
+    if (!element) return
+    const pending = anchor.current
+    anchor.current = undefined
+    if (pending && 'bottom' in pending) {
+      element.scrollTop = element.scrollHeight
+      followBottom.current = true
+      return
+    }
+    if (pending) {
+      const node = [...element.querySelectorAll<HTMLElement>('[data-message-id]')]
+        .find(item => item.dataset.messageId === pending.id)
+      if (node) {
+        element.scrollTop += node.getBoundingClientRect().top - pending.top
+        return
+      }
+    }
+    if (followBottom.current) element.scrollTop = element.scrollHeight
   }, [view.messages])
+  useLayoutEffect(() => {
+    const element = list.current
+    if (!element || !loaded || loadingOlder || !view.hasOlder || element.clientHeight === 0) return
+    // A short page must keep paging until the viewport is full or the stream begins.
+    if (element.scrollHeight <= element.clientHeight + 1) void loadOlder()
+  }, [loaded, loadingOlder, loadOlder, view.hasOlder, view.messages])
+
+  const onScroll = () => {
+    const element = list.current
+    if (!element) return
+    followBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_DISTANCE
+    if (element.scrollTop <= OLDER_SCROLL_TOP) void loadOlder()
+  }
 
   const selectTopic = (next?: string) => {
     if (next === topicId) return
+    generation.current += 1
     setLoaded(false)
+    setLoadingOlder(false)
+    anchor.current = undefined
+    followBottom.current = true
     setError(undefined)
     setTagNote(undefined)
     setEditing(undefined)
@@ -225,6 +356,13 @@ export function ChatPanel({ t }: { t: T }) {
         return
       }
       const active = result.topic?.id
+      if (active === topicRef.current) {
+        setView(previous => mergeView(previous, result))
+        setLoaded(true)
+        followBottom.current = true
+        anchor.current = { bottom: true }
+        return
+      }
       topicRef.current = active
       setTopicId(active)
       setView(result)
@@ -242,10 +380,10 @@ export function ChatPanel({ t }: { t: T }) {
       const result = await ask<ChatView & { tagged: number }>('/chat/tag', { method: 'POST', body: '{}' })
       // A topic selected while the model was running owns the view now; polling will refresh it.
       if (request !== latest.current || !autoTagAllowed(topicRef.current)) return
-      setView(result)
-      setLoaded(true)
-      setOffline(false)
       setTagNote(result.tagged > 0 ? t('autoTagDone', { count: result.tagged }) : t('autoTagNone'))
+      setOffline(false)
+      // Tagging changes which untagged messages belong to the view, so read the page again.
+      await load(topicRef.current === UNTAGGED ? UNTAGGED : undefined)
     } catch (failure) { if (autoTagAllowed(topicRef.current)) setError(errorText(failure)) } finally { setTagging(false) }
   }
   const startEdit = (message: ChatMessage) => {
@@ -294,7 +432,23 @@ export function ChatPanel({ t }: { t: T }) {
       })
       // A topic selected while the save was in flight owns the view now; polling will refresh it.
       if (request !== latest.current || topicRef.current !== viewAtStart) return
-      setView(result)
+      const tagIds = names.flatMap(name => {
+        const topic = result.topics.find(item => sameTopicName(item.name, name))
+        return topic ? [topic.id] : []
+      })
+      setView(previous => {
+        const visible = viewAtStart === UNTAGGED
+          ? tagIds.length === 0
+          : viewAtStart === undefined || tagIds.includes(viewAtStart)
+        return {
+          ...previous,
+          topics: result.topics,
+          untaggedCount: result.untaggedCount ?? previous.untaggedCount,
+          messages: visible
+            ? previous.messages.map(message => message.id === editing.id ? { ...message, tags: tagIds } : message)
+            : previous.messages.filter(message => message.id !== editing.id),
+        }
+      })
       setEditing(current => current && current.id === editing.id ? undefined : current)
       setOffline(false)
     } catch (failure) {
@@ -311,7 +465,13 @@ export function ChatPanel({ t }: { t: T }) {
         method: 'POST', body: JSON.stringify(viewAtStart && viewAtStart !== UNTAGGED ? { topic: viewAtStart } : {}),
       })
       if (request !== latest.current || topicRef.current !== viewAtStart) return
-      setView(result)
+      if (viewAtStart === UNTAGGED) {
+        await load(UNTAGGED)
+        return
+      }
+      setView(previous => mergeView(previous, result))
+      setLoaded(true)
+      setOffline(false)
     } catch (failure) { if (topicRef.current === viewAtStart) setError(errorText(failure)) } finally { setCancelling(false) }
   }
   const sendKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -350,6 +510,7 @@ export function ChatPanel({ t }: { t: T }) {
           onClick={() => selectTopic(UNTAGGED)} title={t('untagged')}>
           <span className="chat-topic-icon"><Icon name="tagOff" size={14} /></span>
           <span className="chat-topic-name">{t('untagged')}</span>
+          <span className="chat-topic-count">{view.untaggedCount ?? 0}</span>
           {view.busy && topicId === UNTAGGED && <span className="chat-busy" data-on role="img" aria-label={t('busy')} title={t('busy')} />}
         </button>
         {view.topics.map(topicRow)}
@@ -394,45 +555,49 @@ export function ChatPanel({ t }: { t: T }) {
       {offline && <p className="chat-error" role="status">{t('connectionFailed')}</p>}
       {error && <p className="chat-error" role="alert">{error}</p>}
       {tagNote && <p className="chat-note" role="status">{tagNote}</p>}
-      <div className="chat-messages" role="log" aria-live="polite">
+      <div className="chat-messages" role="log" aria-live="polite" ref={list} onScroll={onScroll}>
         {!loaded ? <p className="chat-hint">{t('loading')}</p>
-          : shownMessages.length === 0
-            ? <p className="chat-hint">{untaggedView ? t('emptyUntagged') : selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
-            : shownMessages.map(message => {
-              const editingThis = editing !== undefined && editing.id === message.id
-              return <article key={message.id} className="chat-message" data-role={message.role}
-                data-kind={message.kind || undefined}>
-                <div className="chat-bubble">{message.text}</div>
-                <div className="chat-message-foot">
-                  {editingThis && editing
-                    ? <div className="chat-message-tags">
-                      {editing.tags.map(name => <span key={name} className="chat-tag">{name}
-                        <button type="button" className="chat-tag-remove" aria-label={t('removeTag')} title={t('removeTag')}
-                          onClick={() => removeEditTag(name)}><Icon name="x" size={11} /></button>
-                      </span>)}
-                    </div>
-                    : <div className="chat-message-tags">
-                      {messageTagNames(message, view.topics).map(name => <button key={name} type="button" className="chat-tag"
-                        onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
-                        title={t('openTopic')}>{name}</button>)}
-                    </div>}
-                  {!editingThis && <button type="button" className="chat-message-edit" aria-label={t('editTags')} title={t('editTags')}
-                    onClick={() => startEdit(message)}><Icon name="pencil" size={12} /></button>}
-                  <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
-                </div>
-                {editingThis && editing && <form className="chat-tag-editor" onSubmit={event => void saveEdit(event)}>
-                  <input className="chat-tag-input" autoFocus value={editing.draft}
-                    onChange={event => setEditing(current => current ? { ...current, draft: event.target.value } : current)}
-                    onKeyDown={editKey} placeholder={t('tagPlaceholder')} aria-label={t('tagPlaceholder')}
-                    list="super-chat-topic-options" />
-                  <div className="chat-tag-editor-actions">
-                    <button type="button" className="chat-button chat-button-small" onClick={cancelEdit}>{t('cancel')}</button>
-                    <button type="submit" className="chat-button chat-button-small chat-primary" disabled={savingTags}>{t('save')}</button>
+          : <>
+            {view.hasOlder && <p className="chat-hint chat-older-hint" role="status">
+              {loadingOlder ? t('loadingOlder') : t('olderHint')}
+            </p>}
+            {view.messages.length === 0
+              ? <p className="chat-hint">{untaggedView ? t('emptyUntagged') : selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
+              : view.messages.map(message => {
+                const editingThis = editing !== undefined && editing.id === message.id
+                return <article key={message.id} className="chat-message" data-role={message.role}
+                  data-kind={message.kind || undefined} data-message-id={message.id}>
+                  <div className="chat-bubble">{message.text}</div>
+                  <div className="chat-message-foot">
+                    {editingThis && editing
+                      ? <div className="chat-message-tags">
+                        {editing.tags.map(name => <span key={name} className="chat-tag">{name}
+                          <button type="button" className="chat-tag-remove" aria-label={t('removeTag')} title={t('removeTag')}
+                            onClick={() => removeEditTag(name)}><Icon name="x" size={11} /></button>
+                        </span>)}
+                      </div>
+                      : <div className="chat-message-tags">
+                        {messageTagNames(message, view.topics).map(name => <button key={name} type="button" className="chat-tag"
+                          onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
+                          title={t('openTopic')}>{name}</button>)}
+                      </div>}
+                    {!editingThis && <button type="button" className="chat-message-edit" aria-label={t('editTags')} title={t('editTags')}
+                      onClick={() => startEdit(message)}><Icon name="pencil" size={12} /></button>}
+                    <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
                   </div>
-                </form>}
-              </article>
-            })}
-        <div ref={end} />
+                  {editingThis && editing && <form className="chat-tag-editor" onSubmit={event => void saveEdit(event)}>
+                    <input className="chat-tag-input" autoFocus value={editing.draft}
+                      onChange={event => setEditing(current => current ? { ...current, draft: event.target.value } : current)}
+                      onKeyDown={editKey} placeholder={t('tagPlaceholder')} aria-label={t('tagPlaceholder')}
+                      list="super-chat-topic-options" />
+                    <div className="chat-tag-editor-actions">
+                      <button type="button" className="chat-button chat-button-small" onClick={cancelEdit}>{t('cancel')}</button>
+                      <button type="submit" className="chat-button chat-button-small chat-primary" disabled={savingTags}>{t('save')}</button>
+                    </div>
+                  </form>}
+                </article>
+              })}
+          </>}
       </div>
       <div className="chat-foot">
         <form className="chat-composer" onSubmit={send}>
