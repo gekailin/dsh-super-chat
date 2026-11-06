@@ -41,7 +41,8 @@
     "SECURITY.en.md",
     "wechat",
     "docs/**/*.md",
-    "docs/screenshot.png"
+    "docs/screenshot.png",
+    "docs/readme-hero.jpg"
   ],
   "scripts": {
     "build": "tsdown",

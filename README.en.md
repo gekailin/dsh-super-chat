@@ -4,6 +4,8 @@ A Super Chat panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepsee
 
 [简体中文](README.md) | English
 
+![Super Chat: a general chat panel for DeepSeek Harness](docs/readme-hero.jpg)
+
 ## What this repository is
 
 - **A Super Chat plugin for dsh-superagent-prototype**: its core is a `super-chat` Source that turns chat messages into Tickets; it also provides one tagged chat stream, SQLite storage and topic-filtered views.
