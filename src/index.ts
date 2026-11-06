@@ -26,7 +26,7 @@ import { WechatBridge } from './wechat-bridge.ts'
 
 export const name = 'dsh-super-chat'
 /** Services the host half needs before it can mount. */
-export const inject = ['webServer', 'sessionController', 'agents', 'permissionPresets']
+export const inject = ['webServer', 'sessionController', 'agents', 'permissionPresets', 'workspaceRegistry']
 
 /** Profile configuration. Every field has a working default, so the bundle can be enabled with no config. */
 export interface Config {
@@ -84,7 +84,7 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/super-chat',
-    handler: createApi({ store, transport, tagger, wechat, port: ctx.webServer.port!, host: ctx.webServer.host }),
+    handler: createApi({ store, transport, tagger, wechat, workspaceGroup: () => superagent.workspaceGroup(), port: ctx.webServer.port!, host: ctx.webServer.host }),
   }), 'super-chat: http api')
 
   ctx.logger.info('dsh-super-chat ready: panel at /super-chat, state %s, workspace %s',

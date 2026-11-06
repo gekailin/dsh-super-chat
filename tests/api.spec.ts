@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApi } from '../src/api.ts'
 import { ChatStore } from '../src/store.ts'
 import type { ChatTransport } from '../src/transport.ts'
+import type { WorkspaceGroupInfo } from '../src/workspace-group.ts'
 
 describe('Super Chat HTTP API', () => {
   const dir = mkdtempSync(join(tmpdir(), 'super-chat-api-'))
@@ -18,11 +19,12 @@ describe('Super Chat HTTP API', () => {
   const transport: ChatTransport = { mode: () => 'superagent', deliver, busy, cancel }
   const ensureBridge = vi.fn(async () => 'started')
   const tag = vi.fn(async () => ({ tagged: 2 }))
-  let deps: { store: ChatStore; transport: ChatTransport; tagger?: { tag(): Promise<{ tagged: number }> }; wechat?: { ensure(): Promise<unknown> }; port: number; host: string }
+  const workspaceGroup = vi.fn<() => WorkspaceGroupInfo | undefined>(() => undefined)
+  let deps: { store: ChatStore; transport: ChatTransport; tagger?: { tag(): Promise<{ tagged: number }> }; wechat?: { ensure(): Promise<unknown> }; workspaceGroup?: () => WorkspaceGroupInfo | undefined; port: number; host: string }
 
   beforeAll(async () => {
     store.load()
-    deps = { store, transport, tagger: { tag }, wechat: { ensure: ensureBridge }, port: 0, host: '127.0.0.1' }
+    deps = { store, transport, tagger: { tag }, wechat: { ensure: ensureBridge }, workspaceGroup, port: 0, host: '127.0.0.1' }
     server = createServer(createApi(deps))
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
@@ -47,6 +49,16 @@ describe('Super Chat HTTP API', () => {
     expect((await fetch(base + '/super-chat/api/health')).status).toBe(403)
     expect((await call('/super-chat/api/health', { headers: { origin: 'https://evil.example' } })).status).toBe(403)
     expect((await call('/super-chat/api/health', { headers: { origin: base } })).status).toBe(200)
+  })
+
+  it('serves the current Superagent workspace group', async () => {
+    const info = { root: '/state/superagent', workRoot: '/state/superagent/work', workspaceId: 'w', title: 'Superagent', orchestratorSessionId: 'o' }
+    workspaceGroup.mockReturnValueOnce(info)
+    const response = await call('/super-chat/api/workspace-group')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ group: info })
+    const empty = await call('/super-chat/api/workspace-group')
+    expect(await empty.json()).toEqual({ group: null })
   })
 
   it('reports health and an empty general chat', async () => {

@@ -14,6 +14,8 @@ import {
 } from './protocol.ts'
 import type { ChatStore } from './store.ts'
 import type { ChatTransport } from './transport.ts'
+import { ensureWorkspaceGroup } from './workspace-group-host.ts'
+import type { WorkspaceGroupInfo } from './workspace-group.ts'
 
 /** Source kind registered with the prototype; stable because Triggers and Policy parts use it. */
 export const SOURCE = 'super-chat'
@@ -87,6 +89,8 @@ interface SetupLike {
 export interface OrchestratorLike {
   readonly ready: Promise<void>
   readonly machine?: unknown
+  /** Orchestrator Session id exposed by the prototype Runtime. */
+  readonly masterId?: string
   readonly setup: SetupLike
   readonly store: { settings(): SettingsLike; blockRevision(block: string): number }
   readonly settings: {
@@ -103,6 +107,8 @@ export interface Registration {
   orchestrator: OrchestratorLike
   context: SourceContextLike
   unregister: () => void
+  /** Superagent workspace group, when the Host registry is available. */
+  group?: WorkspaceGroupInfo
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -443,14 +449,33 @@ export class SuperagentChat implements ChatTransport {
     try {
       const orchestrator = getOrchestrator(this.ctx)
       if (!orchestrator) { this.clear(); return }
-      if (this.registration?.orchestrator === orchestrator) return
+      if (this.registration?.orchestrator === orchestrator) {
+        await this.ensureGroup(this.registration)
+        return
+      }
       this.clear()
       const registration = await connectSuperagent(this.ctx, this.store)
-      if (!this.stopped && registration) this.registration = registration
+      if (!this.stopped && registration) {
+        await this.ensureGroup(registration)
+        if (!this.stopped) this.registration = registration
+      }
     } catch (error) {
       this.log('Superagent integration is unavailable: ' + failureText(error))
     } finally {
       this.syncing = false
+    }
+  }
+
+  /** Grouping facts the panel API serves to the browser; absent while Superagent is unavailable. */
+  workspaceGroup(): WorkspaceGroupInfo | undefined { return this.registration?.group }
+
+  /** Resolve the group once per registration; a failure retries on the next watch tick. */
+  private async ensureGroup(registration: Registration): Promise<void> {
+    if (registration.group) return
+    try {
+      registration.group = await ensureWorkspaceGroup(this.ctx, registration.orchestrator)
+    } catch (error) {
+      this.log('Superagent workspace group is unavailable: ' + failureText(error))
     }
   }
 

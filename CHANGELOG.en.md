@@ -7,6 +7,7 @@
 - The panel gains an **Auto-tag** action: in the general chat, the profile's default model labels untagged messages with existing topics only. Existing tags are never overwritten, no topics are created, and agent replies inherit the tags.
 - Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.
 - The panel's "General chat" is now "All messages", with a new "<No topic>" view that lists only untagged messages.
+- The workspace sidebar gains a Superagent group: with the prototype installed, the orchestrator and every ticket worker share one group with the orchestrator pinned first. The merge is presentation-only and does not move a Session's working directory.
 
 ## 0.1.0
 

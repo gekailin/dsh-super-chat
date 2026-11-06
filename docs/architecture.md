@@ -1,6 +1,6 @@
 # 架构
 
-本文说明单流聊天、主题标签、SQLite 存储、superagent 分发、浏览器/宿主拆分、HTTP 契约，以及两个窄补丁。
+本文说明单流聊天、主题标签、SQLite 存储、superagent 分发、工作区分组、浏览器/宿主拆分、HTTP 契约，以及两个窄补丁。
 
 [简体中文](architecture.md) | [English](architecture.en.md)
 
@@ -17,8 +17,11 @@
 | `src/wechat-bridge.ts` | host | 微信桥生命周期与保活：未登录时按需启动，已有登录凭据时自动恢复并巡检保活；探测/复用外部桥，只停止自己启动的进程。 |
 | `src/api.ts` | host | `/super-chat/api/*`：请求校验、同源守卫、主题解析和消息存储。 |
 | `src/monkey.ts` | host | 从 `sessionController.list` 中过滤 `super-chat-*` Session。 |
+| `src/workspace-group.ts` | both | 工作区分组的共享形状，以及浏览器侧的合并投影。 |
+| `src/workspace-group-host.ts` | host | 确保 prototype state 目录的 Workspace、附加并置顶 orchestrator Session。 |
 | `src/protocol.ts` | both | 共享 id、上限、消息/主题形状和文本辅助函数。 |
 | `src/client/index.tsx` | browser | 注册 `main` 面板、词典和 `sidebar.panellist` 入口；在 Superagent 行标题右侧挂 Super Chat 快捷入口，找不到时保留独立入口。 |
+| `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
 | `src/client/chat.tsx` | browser | 全部消息、主题视图、`<无主题>` 过滤、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/wechat.tsx` | browser | 微信接入入口和扫码/状态/退出窗口，背后是 `127.0.0.1:8790` 的本地桥。 |
@@ -111,6 +114,7 @@ ChatTransportRouter
 | 方法 | 路径 | Body | 响应 |
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
+| GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
 | GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
 | POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
@@ -157,6 +161,17 @@ if (ctx.sessionController.list === wrapper) ctx.sessionController.list = origina
 - 只读 `items`；未知字段通过 `...value` 保留。
 - 如果另一个插件之后包装了 `list`，本插件的 disposer 会保留较新的包装，避免覆盖。
 - 补丁不碰 `create`、`resolveAgent`、`prompt`、`cancel`、`rename` 等其它方法。
+
+## Superagent 工作区分组
+
+prototype 的 orchestrator Session 在 `stateDir`，每张工单的 worker 在自己的工单目录；DSH 工作区浏览器按 Workspace 分组，所以默认每个工单是一个独立组。插件在 prototype 配置完成后用公开的 `workspaceRegistry` 做两件事：
+
+- 对 `stateDir` 执行 `create(stateDir, 'Superagent')`，确保分组 Workspace 存在；如果它仍是 state 目录的 basename，改成 `Superagent`，用户改过的标题保留。
+- 把 orchestrator Session 附加到该 Workspace，并把它加入 registry 的置顶集合。`attachSession` 要求 Session 头的 cwd 与 Workspace 路径一致；失败时跳过附加，但浏览器仍会按 id 展示。
+
+浏览器半边每 5 秒读取 `GET /super-chat/api/workspace-group`，拿到分组后包装 `ctx.workspaces.list` 的 `getSnapshot`：把 `workRoot`（默认 `<stateDir>/work`，否则取 settings 的 `executor.directory`）下的 Workspace 从快照中移除，把它们的 Session id 合并进分组 Workspace 的 `sessionIds`。合并只发生在客户端投影里：Host registry 不变，Session 的 header cwd、工作目录和执行环境都不变；同一份快照在输入未变时保持同一对象，避免 React 无谓重渲染。
+
+删除分组的 Workspace 注册后，快照里找不到 group，浏览器自动恢复每个工单一组；停止插件会还原原始快照。局限：只覆盖该 state 目录和 executor 目录下的 Workspace；分组内新建会话落在 state 目录；Host 更新最多延迟一个轮询周期。
 
 ## 同源与 CSRF
 

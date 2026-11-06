@@ -25,7 +25,7 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
-function harness(options: { configured?: boolean; github?: Record<string, unknown>; policy?: TestSettings['policy']['sources'] } = {}) {
+function harness(options: { configured?: boolean; github?: Record<string, unknown>; policy?: TestSettings['policy']['sources']; grouping?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'super-chat-superagent-'))
   const store = new ChatStore(join(dir, 'chat.sqlite'))
   store.load()
@@ -62,6 +62,7 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
   const orchestrator: OrchestratorLike = {
     ready: Promise.resolve(),
     machine: { stateDir: dir },
+    masterId: 'orchestrator-test',
     setup,
     store: { settings: () => settings, blockRevision: () => 1 },
     settings: { current: () => settings, save },
@@ -70,9 +71,24 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
     configured: () => configured,
     context: () => context,
   }
-  const ctx = { get: (name: string) => name === 'orchestrator' ? orchestrator : undefined } as unknown as Context
+  const groupSessions: string[] = []
+  const pinnedSessions: string[] = []
+  const groupWorkspace = {
+    id: 'workspace-group', title: 'Superagent', sessionIds: groupSessions,
+    attachSession: vi.fn(async (sessionId: string) => { groupSessions.push(sessionId) }),
+  }
+  const workspaceRegistry = {
+    create: vi.fn(async () => groupWorkspace),
+    pinnedSessionIds: pinnedSessions,
+    pinSession: vi.fn(async (sessionId: string) => { pinnedSessions.unshift(sessionId) }),
+  }
+  const ctx = {
+    get: (name: string) => name === 'orchestrator' ? orchestrator : undefined,
+    ...(options.grouping === false ? {} : { workspaceRegistry }),
+  } as unknown as Context
   return {
     store, settings: () => settings, setup, orchestrator, ctx, registered, reports, received, threads, tickets, save, context,
+    workspaceRegistry, groupSessions, pinnedSessions,
     setConfigured(value: boolean) { configured = value },
   }
 }
@@ -180,6 +196,33 @@ describe('superagent integration', () => {
     expect(h.orchestrator.engine?.stopTicket).toHaveBeenCalledWith('ticket-1')
     h.tickets.set('ticket-1', { id: 'ticket-1', ended: {} })
     expect(chat.busy(design.id)).toBe(false)
+    chat.stop()
+  })
+
+  it('groups the orchestrator and workers under one pinned Superagent workspace', async () => {
+    const h = harness({ configured: true })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    const stateDir = (h.orchestrator.machine as { stateDir: string }).stateDir
+    expect(h.workspaceRegistry.create).toHaveBeenCalledWith(stateDir, 'Superagent')
+    expect(h.groupSessions).toEqual(['orchestrator-test'])
+    expect(h.pinnedSessions).toEqual(['orchestrator-test'])
+    expect(chat.workspaceGroup()).toMatchObject({
+      root: stateDir,
+      workRoot: join(stateDir, 'work'),
+      workspaceId: 'workspace-group',
+      title: 'Superagent',
+      orchestratorSessionId: 'orchestrator-test',
+    })
+    chat.stop()
+  })
+
+  it('keeps chatting when the Host has no workspace registry', async () => {
+    const h = harness({ configured: true, grouping: false })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    expect(chat.available()).toBe(true)
+    expect(chat.workspaceGroup()).toBeUndefined()
     chat.stop()
   })
 
