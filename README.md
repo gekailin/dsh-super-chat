@@ -4,6 +4,8 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
+![Super Chat：面向 DeepSeek Harness 的通用聊天面板](docs/readme-hero.jpg)
+
 ## 这个仓库是什么
 
 - **面向 dsh-superagent-prototype 的 Super Chat 插件**：核心是注册 `super-chat` Source，把聊天消息变成工单；同时提供单流聊天、SQLite 存储和主题标签视图。
