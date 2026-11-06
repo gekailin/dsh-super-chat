@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## Unreleased
+
+- 面板新增「自动打标签」：在通用聊天里用 profile 默认模型判断未打标签的消息，只套用已有主题；不覆盖已有标签，不创建主题，agent 回复继承标签。
+
 ## 0.1.0
 
 首个版本：面向 `dsh-superagent-prototype` 的 Super Chat 插件。

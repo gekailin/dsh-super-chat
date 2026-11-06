@@ -11,6 +11,12 @@ import {
 interface TopicRow { id: string; name: string; created_at: string; updated_at: string; message_count: number }
 interface MessageRow { id: string; role: 'user' | 'agent'; text: string; at: string; kind: string | null; via: string | null; tags: string | null }
 
+/** One model-decided label set for a message; names resolve only to topics that already exist. */
+export interface TagAssignment {
+  id: string
+  topics: readonly string[]
+}
+
 const SCHEMA = [
   'PRAGMA journal_mode = WAL',
   'PRAGMA foreign_keys = ON',
@@ -271,6 +277,67 @@ export class ChatStore {
       ...(input.kind ? { kind: input.kind } : {}),
     })
     return true
+  }
+
+  /**
+   * Apply model-chosen topic names to messages that still have no tags. Unknown names and unknown
+   * messages are ignored, so a stale or hallucinated answer cannot create topics or overwrite labels.
+   * Untagged agent replies then inherit the tags of the nearest preceding user message, mirroring the
+   * delivery rule for live replies. Returns how many messages gained tags.
+   */
+  applyTagAssignments(assignments: readonly TagAssignment[]): number {
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      const topicIds = new Map<string, string>()
+      for (const row of this.db.prepare('SELECT id, name_key FROM topic').all() as unknown as { id: string; name_key: string }[]) {
+        topicIds.set(row.name_key, row.id)
+      }
+      const exists = this.db.prepare('SELECT 1 AS found FROM message WHERE id = ?')
+      const tagged = this.db.prepare('SELECT 1 AS found FROM message_topic WHERE message_id = ?')
+      const insert = this.db.prepare('INSERT OR IGNORE INTO message_topic (message_id, topic_id, ordinal) VALUES (?, ?, ?)')
+      let count = 0
+      for (const assignment of assignments) {
+        if (exists.get(assignment.id) === undefined || tagged.get(assignment.id) !== undefined) continue
+        const ids: string[] = []
+        for (const name of assignment.topics) {
+          if (ids.length >= MAX_TAGS) break
+          const id = topicIds.get(cleanTopicName(name).toLocaleLowerCase())
+          if (id && !ids.includes(id)) ids.push(id)
+        }
+        if (ids.length === 0) continue
+        ids.forEach((topicId, ordinal) => insert.run(assignment.id, topicId, ordinal))
+        count += 1
+      }
+      count += this.inheritAgentTags()
+      this.db.exec('COMMIT')
+      return count
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+  }
+
+  /** Copy tags from each user message to the untagged agent messages that follow it. */
+  private inheritAgentTags(): number {
+    const rows = this.db.prepare([
+      'SELECT m.id, m.role,',
+      '(SELECT GROUP_CONCAT(topic_id, \',\') FROM (SELECT topic_id FROM message_topic WHERE message_id = m.id ORDER BY ordinal)) AS tags',
+      'FROM message m ORDER BY m.seq',
+    ].join(' ')).all() as unknown as { id: string; role: 'user' | 'agent'; tags: string | null }[]
+    const insert = this.db.prepare('INSERT OR IGNORE INTO message_topic (message_id, topic_id, ordinal) VALUES (?, ?, ?)')
+    let inheritedFrom: string[] = []
+    let count = 0
+    for (const row of rows) {
+      const tags = row.tags ? row.tags.split(',').filter(validTopicId).slice(0, MAX_TAGS) : []
+      if (row.role === 'user') {
+        inheritedFrom = tags
+        continue
+      }
+      if (tags.length > 0 || inheritedFrom.length === 0) continue
+      inheritedFrom.forEach((topicId, ordinal) => insert.run(row.id, topicId, ordinal))
+      count += 1
+    }
+    return count
   }
 
   /** Insert a topic, ignoring an existing id or name. */

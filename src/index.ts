@@ -20,6 +20,7 @@ import { hideChatSessions } from './monkey.ts'
 import { GeneralSession } from './session.ts'
 import { ChatStore } from './store.ts'
 import { SuperagentChat } from './superagent.ts'
+import { AutoTagger } from './tagger.ts'
 import { ChatTransportRouter } from './transport.ts'
 import { WechatBridge } from './wechat-bridge.ts'
 
@@ -67,6 +68,7 @@ export function apply(ctx: Context, config?: Config): void {
     ...(options.permissionPreset ? { permissionPreset: options.permissionPreset } : {}),
   })
   const transport = new ChatTransportRouter(superagent, session)
+  const tagger = new AutoTagger(ctx, store, message => ctx.logger.warn('dsh-super-chat: %s', message))
   // The bridge is started on demand by the WeChat access dialog; it is never started at plugin load.
   const wechat = new WechatBridge({ stateDir: options.stateDir, panelPort: ctx.webServer.port! })
 
@@ -74,11 +76,12 @@ export function apply(ctx: Context, config?: Config): void {
   ctx.effect(() => { superagent.start(); return () => superagent.stop() }, 'super-chat: superagent source')
   ctx.effect(() => hideChatSessions(ctx), 'super-chat: hidden sessions')
   ctx.effect(() => () => store.close(), 'super-chat: store')
+  ctx.effect(() => () => { tagger.stop() }, 'super-chat: auto-tagger')
   ctx.effect(() => () => { void wechat.stop() }, 'super-chat: wechat bridge')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: '/super-chat',
-    handler: createApi({ store, transport, wechat, port: ctx.webServer.port!, host: ctx.webServer.host }),
+    handler: createApi({ store, transport, tagger, wechat, port: ctx.webServer.port!, host: ctx.webServer.host }),
   }), 'super-chat: http api')
 
   ctx.logger.info('dsh-super-chat ready: panel at /super-chat, state %s, workspace %s',
