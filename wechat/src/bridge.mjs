@@ -13,6 +13,7 @@ export class Bridge {
     this.log = log;
     this.send = send ?? ((text) => client.sendText(peer, text));
     this.sent = new Set();
+    this.inFlight = new Set();
     this.fallbackSeen = new Set();
     // 入站去重：默认内存 Set；super chat 模式传入持久化实现 { has, add }。
     this.seen = seen ?? {
@@ -54,25 +55,33 @@ export class Bridge {
     if (!text) return null;
 
     const key = String(msg.id);
-    if (await this.seen.has(key)) return null;
-    await this.seen.add(key);
+    if (this.inFlight.has(key) || (await this.seen.has(key))) return null;
+    this.inFlight.add(key);
 
-    this.log('← ' + text);
-    const answer = await this.agent.reply({ text, msg, history: this.history });
-    if (!answer) return null;
+    try {
+      this.log('← ' + text);
+      const answer = await this.agent.reply({ text, msg, history: this.history });
+      if (!answer) {
+        await this.seen.add(key);
+        return null;
+      }
 
-    const output = typeof answer === 'string' ? answer : answer.text;
-    if (typeof answer === 'string') {
-      this.history.push({ role: 'user', content: text }, { role: 'assistant', content: answer });
-      if (this.history.length > 40) this.history.splice(0, this.history.length - 40);
+      const output = typeof answer === 'string' ? answer : answer.text;
+      if (typeof answer === 'string') {
+        this.history.push({ role: 'user', content: text }, { role: 'assistant', content: answer });
+        if (this.history.length > 40) this.history.splice(0, this.history.length - 40);
+      }
+
+      if (output) {
+        const msgId = await this.send(output);
+        if (msgId) this.sent.add(String(msgId));
+        this.log('→ ' + output);
+      }
+      if (typeof answer === 'object' && typeof answer.after === 'function') await answer.after();
+      await this.seen.add(key);
+      return output ?? null;
+    } finally {
+      this.inFlight.delete(key);
     }
-
-    if (output) {
-      const msgId = await this.send(output);
-      if (msgId) this.sent.add(String(msgId));
-      this.log('→ ' + output);
-    }
-    if (typeof answer === 'object' && typeof answer.after === 'function') await answer.after();
-    return output ?? null;
   }
 }

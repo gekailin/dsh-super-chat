@@ -125,6 +125,14 @@ export class Poller {
       await this.state.save();
       this.log('[inbox] 暂存消息已补发');
     } catch (e) {
+      const status = e?.status;
+      if (status !== undefined && status >= 400 && status < 500 && status !== 429) {
+        peer.outbox.shift();
+        this.error = '暂存消息被拒绝: ' + e.message;
+        void this.outbound.enqueue('有一条暂存消息被拒绝（' + e.message + '），已丢弃。').catch(() => {});
+        await this.state.save();
+        return;
+      }
       item.attempts = (item.attempts ?? 0) + 1;
       item.nextAt = new Date(Date.now() + Math.min(2000 * 2 ** Math.min(item.attempts, 5), 60_000)).toISOString();
       this.error = '暂存消息补发失败: ' + e.message;
