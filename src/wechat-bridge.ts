@@ -11,10 +11,15 @@ const PROBE_TIMEOUT_MS = 1_000
 
 const delay = (ms: number): Promise<void> => new Promise(resolve => { const timer = setTimeout(resolve, ms); timer.unref?.() })
 
-const defaultProbe = async (url: string): Promise<boolean> => {
+const defaultProbe = (panelPort: number) => async (url: string): Promise<boolean> => {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-    return response.ok
+    if (!response.ok) return false
+    const body = await response.json().catch(() => null) as { ok?: boolean; mode?: string; superchat?: { url?: string } } | null
+    if (!body || body.ok !== true) return false
+    if (body.mode && body.mode !== 'superchat') return false
+    if (body.superchat?.url && body.superchat.url !== 'http://127.0.0.1:' + panelPort) return false
+    return true
   } catch {
     return false
   }
@@ -48,18 +53,21 @@ export class WechatBridge {
   private readonly probe: (url: string) => Promise<boolean>
   private child?: ChildProcess
   private starting?: Promise<void>
+  private stopped = false
 
   constructor(private readonly options: WechatBridgeOptions) {
     this.port = options.port ?? DEFAULT_PORT
     this.dir = join(options.stateDir, 'wechat')
     this.packageRoot = options.packageRoot ?? join(dirname(fileURLToPath(import.meta.url)), '..')
     this.spawnProcess = options.spawn ?? spawn
-    this.probe = options.probe ?? defaultProbe
+    this.probe = options.probe ?? defaultProbe(options.panelPort)
   }
 
   /** Ensure the bridge is ready; an already healthy bridge is reported as running. */
   async ensure(): Promise<BridgeStart> {
+    if (this.stopped) throw new Error('WeChat bridge is stopped')
     if (await this.healthy()) return 'running'
+    if (this.stopped) throw new Error('WeChat bridge is stopped')
     if (!this.starting) this.starting = this.start().finally(() => { this.starting = undefined })
     await this.starting
     return 'started'
@@ -67,6 +75,7 @@ export class WechatBridge {
 
   /** Stop only the bridge process this manager started; an externally running bridge is reused, not killed. */
   async stop(): Promise<void> {
+    this.stopped = true
     const child = this.child
     this.child = undefined
     if (!child || child.exitCode !== null) return
@@ -85,6 +94,7 @@ export class WechatBridge {
   }
 
   private async start(): Promise<void> {
+    if (this.stopped) throw new Error('WeChat bridge is stopped')
     mkdirSync(this.dir, { recursive: true, mode: 0o700 })
     this.copyLegacy()
     const script = join(this.packageRoot, 'wechat', 'src', 'service.mjs')
@@ -104,10 +114,18 @@ export class WechatBridge {
       },
       stdio: 'ignore',
     })
+    if (this.stopped) {
+      try { child.kill('SIGTERM') } catch { /* already gone */ }
+      throw new Error('WeChat bridge is stopped')
+    }
     this.child = child
     child.once('exit', () => { if (this.child === child) this.child = undefined })
     const deadline = Date.now() + START_TIMEOUT_MS
     while (Date.now() < deadline) {
+      if (this.stopped) {
+        try { child.kill('SIGTERM') } catch { /* already gone */ }
+        throw new Error('WeChat bridge is stopped')
+      }
       if (await this.healthy()) return
       if (child.exitCode !== null) throw new Error('WeChat bridge exited before it was ready')
       await delay(200)

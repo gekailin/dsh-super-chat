@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http'
+import { createServer, request as httpRequest, type Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -165,6 +165,19 @@ describe('Super Chat HTTP API', () => {
     expect((await call('/super-chat/api/chat', { method: 'POST', body: 'not json' })).status).toBe(400)
     expect((await call('/super-chat/api/chat', { method: 'POST', body: JSON.stringify({ text: 'x'.repeat(16_001) }) })).status).toBe(400)
     expect((await call('/super-chat/api/chat', { method: 'POST', body: JSON.stringify({ text: 'x', tags: 'bad' }) })).status).toBe(400)
+    expect((await call('/super-chat/api/chat', { method: 'POST', body: JSON.stringify({ text: 'x', pad: 'y'.repeat(70_000) }) })).status).toBe(400)
+    const badHostStatus = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(base + '/super-chat/api/health', {
+        headers: { host: 'evil.example:80', 'x-super-chat-request': '1' },
+      }, res => { res.resume(); resolve(res.statusCode ?? 0) })
+      req.on('error', reject)
+      req.end()
+    })
+    expect(badHostStatus).toBe(403)
     expect((await call('/super-chat/api/nope')).status).toBe(404)
+
+    tag.mockRejectedValueOnce(new Error('Invalid downstream response from provider: model required retry'))
+    const downstreamError = await call('/super-chat/api/chat/tag', { method: 'POST', body: '{}' })
+    expect(downstreamError.status).toBe(500)
   })
 })

@@ -327,11 +327,12 @@ const restartRequested = new WeakSet<object>()
 let restarts = 0
 
 /** Connect once: patch chat-only setup, restart when needed, register the Source, seed Policy. */
-export async function connectSuperagent(ctx: Context, store: ChatStore): Promise<Registration | undefined> {
+export async function connectSuperagent(ctx: Context, store: ChatStore, shouldStop?: () => boolean): Promise<Registration | undefined> {
   const orchestrator = getOrchestrator(ctx)
-  if (!orchestrator) return undefined
+  if (!orchestrator || shouldStop?.()) return undefined
   patchSetup(orchestrator)
   await withTimeout(orchestrator.ready, READY_TIMEOUT_MS)
+  if (shouldStop?.()) return undefined
   if (!orchestrator.configured()) {
     if (chatOnly(orchestrator.store.settings()) && !restartRequested.has(orchestrator) && restarts < 3) {
       restartRequested.add(orchestrator)
@@ -343,9 +344,17 @@ export async function connectSuperagent(ctx: Context, store: ChatStore): Promise
   restarts = 0
   const unregister = orchestrator.sources.register(createSourceKind(store))
   try {
+    if (shouldStop?.()) {
+      unregister()
+      return undefined
+    }
     const context = orchestrator.context({ kind: SOURCE, health: [HEALTH] })
     context.report(HEALTH, { state: 'ready', detail: 'Super Chat source ready', at: new Date().toISOString() })
     await seedPolicy(orchestrator)
+    if (shouldStop?.()) {
+      unregister()
+      return undefined
+    }
     return { orchestrator, context, unregister }
   } catch (error) {
     unregister()
@@ -445,8 +454,12 @@ export class SuperagentChat implements ChatTransport {
       if (!orchestrator) { this.clear(); return }
       if (this.registration?.orchestrator === orchestrator) return
       this.clear()
-      const registration = await connectSuperagent(this.ctx, this.store)
-      if (!this.stopped && registration) this.registration = registration
+      const registration = await connectSuperagent(this.ctx, this.store, () => this.stopped)
+      if (!this.stopped && registration) {
+        this.registration = registration
+      } else if (registration) {
+        try { registration.unregister() } catch { /* the Runtime may already be disposed */ }
+      }
     } catch (error) {
       this.log('Superagent integration is unavailable: ' + failureText(error))
     } finally {

@@ -198,4 +198,20 @@ describe('superagent integration', () => {
     expect(h.store.messages().at(-1)?.text).toContain('engine down')
     chat.stop()
   })
+
+  it('unregisters the Source if stop() is called while connectSuperagent is in flight', async () => {
+    const h = harness({ configured: true })
+    let releaseReady!: () => void
+    ;(h.orchestrator as { ready: Promise<void> }).ready = new Promise<void>(resolve => { releaseReady = resolve })
+    let unregistered = 0
+    h.orchestrator.sources.register = vi.fn(() => () => { unregistered += 1 })
+
+    const chat = new SuperagentChat(h.ctx, h.store)
+    const refreshing = chat.refresh()
+    chat.stop()
+    releaseReady()
+    await refreshing
+    expect(unregistered).toBe(0)
+    expect(chat.available()).toBe(false)
+  })
 })
