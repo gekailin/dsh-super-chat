@@ -28,7 +28,7 @@ A Super Chat plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepse
 - Messages and topics must stay complete and recoverable. `chat.sqlite` writes run in transactions so messages and `message_topic` indexes stay consistent; directories are `0700`.
 - Messages and topics are bounded (`MESSAGE_LIMIT`, `TOPIC_LIMIT`); eviction removes only the oldest messages and must never silently drop the current topic.
 - A corrupt database or legacy `chat.json` is quarantined as `.corrupt-<timestamp>`; never fail DSH startup and never silently overwrite it.
-- The panel shows the complete selected view. Polling is a read; it must not reorder the stream or change tags.
+- The panel opens on the newest page and reaches the complete selected view by loading older pages on scroll-up. Polling is a read; it must not reorder the loaded stream or change tags.
 - In the superagent integration, Trigger, Thread, and Ticket identities stay stable: the `super-chat` Source; a tagged message uses `super-chat:topic:<topicId>`, an untagged one `super-chat:general`; authorization and ticket history must not change across restarts.
 
 ### Efficiency

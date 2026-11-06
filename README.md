@@ -23,8 +23,8 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 
 ## Features
 
-- **All messages**: every message goes into one stream; this is the panel's main view and replaces the former "General chat" label.
-- **<No topic> view**: shows only the messages in the current fetch window that carry no tags; it is a client-side filter and changes neither storage, dispatch nor the topic list.
+- **All messages**: every message goes into one stream; this is the panel's main view and replaces the former "General chat" label. The panel opens at the newest page and loads older messages when you scroll up.
+- **<No topic> view**: shows only messages that carry no tags, with a live count in the sidebar; it is a read-time filter and changes neither storage, dispatch nor the topic list.
 - **Topic views**: topics are tags on messages, not separate conversations. One message may carry several tags and appears in every matching view.
 - **Topics are dispatch cues**: for a tagged message the first tag becomes the `super-chat` dispatch thread; untagged messages go to `general` and Superagent decides. Tags never force the outcome.
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
@@ -91,7 +91,7 @@ Every option has a working default. Override it in the profile's `cordis.patch.y
 
 ```
 browser (client slots "main" + "sidebar.panellist")
-  │  GET/POST /super-chat/api/chat?topic=…
+  │  GET/POST /super-chat/api/chat?topic=…&before=…
   ▼
 host plugin (dsh-super-chat)
   ├─ chat.sqlite          message / topic / message_topic, indexed
@@ -152,6 +152,7 @@ The bridge listens on `127.0.0.1:8790`; the on-demand manager stores login and c
 
 - Text only; the panel does not accept images or file attachments yet.
 - Replies arrive by polling (2.5 s), not token streaming.
+- The panel reads the newest 50 messages first and fetches older pages as you scroll up, up to the retained stream limit.
 - Topics are labels and dispatch cues, not strict partitions; the first tag chooses the dispatch thread and Superagent may still decide otherwise.
 - The fallback has a single Session, so every message shares one model context; tagged replies inherit their turn's tags and appear in both All messages and their matching topic views.
 - The plugin does not ship a ticket pipeline or worker pool; those come from `dsh-superagent-prototype`.

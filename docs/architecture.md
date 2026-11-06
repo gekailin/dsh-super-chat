@@ -22,7 +22,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/protocol.ts` | both | Shared ids, limits, message/topic shapes and text helpers. |
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
 | `src/client/workspace-group.ts` | browser | Wraps the Workspace snapshot to fold ticket Workspaces into the Superagent group. |
-| `src/client/chat.tsx` | browser | All messages, topic views, the `<No topic>` filter, tag input, new topics, per-message tag editing, stop and polling. |
+| `src/client/chat.tsx` | browser | Newest-page paging with scroll-up for older pages, the `<No topic>` view, tag input, new topics, per-message tag editing, stop and polling. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
 | `src/client/text.ts` | browser | Relative and short-date timestamp formatting for message metadata. |
 | `src/client/locales.ts` | browser | Simplified Chinese and English dictionaries for the panel and WeChat dialog. |
@@ -64,7 +64,7 @@ CREATE INDEX message_topic_topic ON message_topic(topic_id, message_id);
 - There is one message stream; topics are tags on messages, not separate conversations. One message may carry several topics and appears in several topic views.
 - Message ids are globally unique and deduplicate retries. At most `MESSAGE_LIMIT` (1000) messages are kept; the oldest are trimmed.
 - Topic names are case-insensitive and unique; at most `TOPIC_LIMIT` (200) topics.
-- A topic view filters by `message_topic.topic_id`; All messages reads the whole stream ordered by `message.seq`.
+- A topic view filters by `message_topic.topic_id`; All messages reads the whole stream ordered by `message.seq`. Reads return one page (50 messages by default, at most `VIEW_LIMIT`), newest first internally and oldest first on the wire; `before=<oldest id>` walks to the previous page.
 - An old `chat.json` is imported when the database is empty: v1 conversations are flattened into the general stream; after a successful import the old file is renamed `chat.json.imported-<timestamp>`. An unreadable file is renamed `.corrupt-<timestamp>` and does not block startup.
 - SQLite uses WAL; one profile has exactly one writing process.
 
@@ -72,8 +72,8 @@ CREATE INDEX message_topic_topic ON message_topic(topic_id, message_id);
 
 ```
 browser
-  │ GET /super-chat/api/chat?topic=<id>   read the general or a topic view
-  │ POST /super-chat/api/chat {text,tags} send a message
+  │ GET /super-chat/api/chat?topic=<id>&before=<id>&limit=<n>   read a page
+  │ POST /super-chat/api/chat {text,tags}                       send a message
   ▼
 ChatStore (SQLite)
   │ appendUser / resolveTags
@@ -100,7 +100,7 @@ ChatTransportRouter
 
 ### All messages and `<No topic>`
 
-The panel's main view is **All messages**, which reads the whole chat stream. The sidebar's **`<No topic>`** entry is neither a topic nor a separate storage or dispatch partition: the client filters the currently fetched messages down to those without tags, so it needs no new endpoint and changes no topic list, Trigger or dispatch. Untagged messages still use `super-chat:general` for Superagent to decide.
+The panel's main view is **All messages**, which reads the chat stream newest-page first: opening the panel shows the latest messages at the bottom without replaying the stream, and scrolling to the top fetches the previous page with `before`. The sidebar's **`<No topic>`** entry is neither a topic nor a separate storage or dispatch partition: it is the same stream filtered at read time to messages without tags, so it pages and counts without copying messages. Its sidebar count is the total untagged count, and untagged messages still use `super-chat:general` for Superagent to decide. Polling merges only the newest page into the loaded stream; it never reorders the loaded messages, and it keeps the reader's position unless they are at the bottom.
 
 ### Auto-tagging
 
@@ -118,17 +118,21 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
-| GET | `/super-chat/api/chat?topic=<id>` | — | `{ topic?, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, mode, busy? }` |
-| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, mode, busy? }` |
+| GET | `/super-chat/api/chat?topic=<id>&before=<id>&limit=<n>` | — | `{ topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| GET | `/super-chat/api/chat?untagged=1&before=<id>&limit=<n>` | — | `{ topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat/tag` | — | `{ tagged, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
+| POST | `/super-chat/api/chat/tags` | `{ id, tags, topic? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/topics` | `{ name }` | `{ topic, topics }` |
 | POST | `/super-chat/api/topics/rename` | `{ id, name }` | `{ topic, topics }` |
-| POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, mode, busy? }` |
+| POST | `/super-chat/api/chat/cancel` | `{ topic? }` | `{ cancelled, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/wechat/start` | — | `{ ok, result: 'running' | 'started' }` |
 
 - `tags` is an array of topic names; the server resolves and creates missing topics and stores topic ids on the message.
 - `topic` is the selected view id used to return the same view; it is not a tag.
+- `untagged=1` selects messages with no topic tag; it cannot be combined with `topic`.
+- `messages` is one page, oldest first. `limit` is an integer from 1 to `VIEW_LIMIT` (200), defaulting to `MESSAGE_PAGE` (50). `olderCursor` is the oldest message in the page; pass it as `before` to read the previous page, and `hasOlder` says whether that page can be non-empty.
+- `untaggedCount` is the total number of untagged messages in the retained stream, used for the sidebar count.
 - A duplicate `clientId` returns `duplicate` and is not delivered again.
 - `chat/tag` fills existing topics only on untagged messages; `tagged` counts the messages that gained tags, including replies that inherited them.
 - `chat/tags` replaces one existing message's tags with the submitted set; names resolve and create missing topics, and an empty array clears the tags.
@@ -139,7 +143,7 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 `wechat/` is a separate Node.js process defaulting to the general chat. `src/wechat-bridge.ts` owns its lifecycle and keep-alive: before sign-in it starts on demand only when the user opens the WeChat access dialog; once `stateDir/wechat/creds.json` exists, host startup and background checks keep the bridge running and automatically recover it across host restarts or unexpected exits without waiting for a panel click. It probes `8790/health` and reuses an existing bridge, otherwise spawns one, and stops only the child it started. Credentials, cursors and the outbox live under `stateDir/wechat/`; an old manual `wechat/creds.json` is copied once.
 
 - `@topic` tokens are parsed as topic names, removed from the body, and submitted as `tags`; several tokens produce several tags.
-- Single-stream polling: the bridge reads `GET /chat` and forwards agent messages after its cursor to WeChat; tagged replies get a `「topic」` prefix.
+- Single-stream polling: the bridge reads `GET /chat?limit=200` and forwards agent messages after its cursor to WeChat; tagged replies get a `「topic」` prefix. The full window keeps its last-delivered cursor inside the fetched page while the panel pages 50 at a time.
 - There is no command system; `/list` and similar text are ordinary messages.
 - The bridge reaches `/super-chat/api/chat` over loopback only; the plugin host never sees WeChat credentials.
 
