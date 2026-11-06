@@ -1,22 +1,23 @@
-# 更新日志
+# Changelog
 
-[简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
+[简体中文](CHANGELOG.zh.md) | English
 
 ## Unreleased
 
-- 面板新增「自动打标签」：在通用聊天里用 profile 默认模型判断未打标签的消息，只套用已有主题；不覆盖已有标签，不创建主题，agent 回复继承标签。
-- 每条消息支持手动编辑标签：逐条增删标签并保存，可新建主题；只替换该消息的标签。
-- 面板的“通用聊天”改名为“全部消息”，并新增“<无主题>”视图，只显示未打标签的消息。
-- 工作区新增 Superagent 分组：装了 prototype 时，orchestrator 与各工单 worker 的 Workspace 合并为一组，orchestrator 置顶；只在浏览器侧合并展示，不改变 Session 工作目录。
+- Documentation now defaults to English; Chinese versions use the `.zh.md` suffix.
+- The panel gains an **Auto-tag** action: in the general chat, the profile's default model labels untagged messages with existing topics only. Existing tags are never overwritten, no topics are created, and agent replies inherit the tags.
+- Each message now has manual tag editing: add or remove tags and save; a new name creates a topic, and only that message's tags change.
+- The panel's "General chat" is now "All messages", with a new "<No topic>" view that lists only untagged messages.
+- The workspace sidebar gains a Superagent group: with the prototype installed, the orchestrator and every ticket worker share one group with the orchestrator pinned first. The merge is presentation-only and does not move a Session's working directory.
 
 ## 0.1.0
 
-首个版本：面向 `dsh-superagent-prototype` 的 Super Chat 插件。
+First release: a Super Chat plugin built around `dsh-superagent-prototype`.
 
-- 通过 prototype 公开的 `orchestrator` 服务注册 `super-chat` Source，把聊天消息变成 Ticket，回复写回同一聊天流。
-- 单流聊天 + 多主题标签：通用聊天与主题视图共享一条流；主题是标签，首个标签作为 dispatch cue，无标签消息走 `general`，由 Superagent 自行判断。
-- SQLite 存储：`message` / `topic` / `message_topic` 表和索引；旧 `chat.json` 一次性迁移。
-- chat-only：GitHub 两项为空时，在内存中兼容 prototype 的 `Setup`，让纯 chat 部署也能接单；不修改 prototype 文件。
-- 面板：通用聊天、主题视图、多重标签输入、新建主题、停止当前视图；Super Chat 入口作为 Superagent 行标题右侧的 chip。
-- 微信：自然语言 + `@主题` 打标，单流轮询；打开接入时按需启动桥，登录态和游标存在 `stateDir/wechat`。
-- 文档默认中文，英文版本为同目录 `.en.md`。
+- Registers a `super-chat` Source through the prototype's public `orchestrator` service, turns chat messages into Tickets, and writes replies back to the same stream.
+- One tagged chat stream: the general chat and topic views share it. Topics are tags; the first tag is a dispatch cue, and untagged messages use `general` for Superagent to decide.
+- SQLite storage: indexed `message`, `topic` and `message_topic` tables, with a one-time `chat.json` migration.
+- Chat-only: when both GitHub fields are empty, an in-memory `Setup` compatibility patch lets a chat-only deployment take work without modifying prototype files.
+- Panel: general chat, topic views, multi-tag composer, new topics, and stopping the current view; the Super Chat entry is a chip at the right of the Superagent row title.
+- WeChat: natural language with `@topic` tagging and single-stream polling; opening WeChat access starts the bridge on demand, with login and cursors under `stateDir/wechat`.
+- Documentation defaults to English, with Chinese `.zh.md` mirrors.
