@@ -41,7 +41,7 @@ const messageOf = (row: MessageRow): ChatMessage => ({
   text: row.text,
   at: row.at,
   tags: tagsOf(row),
-  ...(row.kind === 'error' ? { kind: 'error' as const } : {}),
+  ...(row.kind === 'error' || row.kind === 'note' ? { kind: row.kind } : {}),
   ...(row.via === 'panel' || row.via === 'wechat' ? { via: row.via } : {}),
 })
 
@@ -321,7 +321,7 @@ export class ChatStore {
   }
 
   /** Append an agent message once by id; returns whether it was new. */
-  appendAgent(input: { id: string; text: string; at: string; tags: string[]; kind?: 'error' }): boolean {
+  appendAgent(input: { id: string; text: string; at: string; tags: string[]; kind?: 'error' | 'note' }): boolean {
     if (this.hasMessage(input.id)) return false
     this.insertMessage({
       id: input.id,

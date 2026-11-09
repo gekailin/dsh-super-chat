@@ -134,3 +134,30 @@ button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color
 .chat-wechat-name { overflow: hidden; font-size: 14px; line-height: 20px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .chat-wechat-state-text { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
 .chat-wechat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); }
+/* Model settings entry shares the sidebar foot with WeChat access. */
+.chat-models-entry { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }
+.chat-models-entry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.chat-models-entry:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 0; }
+.chat-models-entry-icon { display: inline-flex; flex: none; }
+.chat-models-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The model window reuses the WeChat window's modal geometry with its own field layout. */
+.chat-models-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.chat-models-mask { position: absolute; inset: 0; background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, .45)); backdrop-filter: var(--dsw-mask-blur, blur(2px)); }
+.chat-models-window { position: relative; z-index: 1; box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; width: min(440px, 100%); max-height: 100%; overflow: auto; padding: 20px 22px 22px; border-radius: 20px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, #fff)); box-shadow: var(--dsw-elevation-prominent, 0 18px 48px rgba(0, 0, 0, .28)); color: var(--dsw-alias-label-primary); outline: none; }
+.chat-models-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-models-head h2 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 500; }
+.chat-models-close { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+.chat-models-close:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.chat-models-subtitle { margin: -4px 0 2px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-tertiary); }
+.chat-models-role { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 12px 14px 14px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }
+.chat-models-role legend { padding: 0 4px; font-size: 13px; line-height: 20px; font-weight: 600; }
+.chat-models-hint { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary); }
+.chat-models-field { display: grid; grid-template-columns: minmax(72px, auto) minmax(0, 1fr); align-items: center; gap: 8px; font-size: 13px; line-height: 20px; }
+.chat-models-field select { box-sizing: border-box; width: 100%; min-width: 0; height: 30px; padding: 0 8px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: 7px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1)); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; }
+.chat-models-field select:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 0; }
+.chat-models-field select:disabled { opacity: .55; }
+.chat-models-error { margin: 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent); color: var(--dsw-alias-state-error-primary); font-size: 13px; line-height: 20px; }
+.chat-models-note { margin: 0; color: var(--dsw-alias-state-success-primary); font-size: 12px; line-height: 18px; }
+.chat-models-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+/* A panel note such as the worker model that was applied; not model output. */
+.chat-message[data-kind='note'] .chat-bubble { padding: 0; border: 0; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }

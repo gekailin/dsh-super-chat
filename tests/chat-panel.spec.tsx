@@ -291,3 +291,60 @@ it('leaves user text raw and offers no render toggle on it', async () => {
   expect(message.querySelector('.chat-message-raw')).toBeNull()
   view.dispose()
 })
+
+it('opens model settings from the sidebar and saves the orchestrator model', async () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  const modelView = {
+    available: true,
+    default: { provider: 'mccodex', model: 'deepseek-v4.1-flash' },
+    orchestrator: null,
+    worker: null,
+    groups: [{
+      id: 'mccodex',
+      name: 'MCCODEX',
+      models: [
+        { id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', reasoning: { efforts: [{ id: 'high', name: 'High' }] } },
+        { id: 'glm-5.3', name: 'GLM 5.3' },
+      ],
+    }],
+    failures: [],
+  }
+  const calls: { url: string; init?: RequestInit }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ url: String(url), ...(init ? { init } : {}) })
+    if (String(url).endsWith('/models') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { role: string; model: typeof modelView.orchestrator }
+      return Response.json({ ...modelView, [body.role]: body.model })
+    }
+    if (String(url).endsWith('/models')) return Response.json(modelView)
+    return Response.json(general)
+  }))
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  await act(async () => { root.render(<ChatPanel t={t} />) })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  await act(async () => { (container.querySelector('.chat-models-entry') as HTMLButtonElement).click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  const dialog = document.querySelector<HTMLElement>('.chat-models-window')!
+  expect(dialog.textContent).toContain(zh.modelsTitle)
+  expect(dialog.textContent).toContain('mccodex / deepseek-v4.1-flash')
+
+  const selects = [...dialog.querySelectorAll<HTMLSelectElement>('.chat-models-role select')]
+  const choose = async (select: HTMLSelectElement, value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value)
+    await act(async () => { select.dispatchEvent(new Event('change', { bubbles: true })) })
+  }
+  await choose(selects[0]!, 'mccodex')
+  await choose(selects[1]!, 'glm-5.3')
+  const save = dialog.querySelector<HTMLButtonElement>('.chat-models-actions .chat-primary')!
+  await act(async () => { save.click() })
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+
+  const post = calls.find(call => call.url.endsWith('/models') && call.init?.method === 'POST')
+  expect(JSON.parse(String(post?.init?.body))).toEqual({ role: 'orchestrator', model: { provider: 'mccodex', model: 'glm-5.3' } })
+  expect(document.querySelector('.chat-models-note')?.textContent).toBe(zh.modelsSaved)
+  act(() => root.unmount())
+  container.remove()
+})

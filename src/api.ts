@@ -1,6 +1,7 @@
 /** Loopback HTTP API the Super Chat panel calls on the DSH web server's origin. */
 import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { roleModelOf } from './models.ts'
 import {
   MAX_BODY, MAX_TEXT, MESSAGE_PAGE, VIEW_LIMIT, cleanTopicName, validMessageId, validTopicId,
   type ChatView, type Topic,
@@ -94,6 +95,7 @@ const topicNames = (value: unknown): string[] => Array.isArray(value)
 
 class BadRequest extends Error {}
 class NotFound extends Error {}
+class Conflict extends Error {}
 
 /** Build the request handler registered on /super-chat. */
 export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -148,6 +150,23 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
         writeJson(res, 200, { group: deps.workspaceGroup?.() ?? null })
         return
       }
+      if (path === 'models' && req.method === 'GET') {
+        if (!deps.transport.models) throw new NotFound('Model settings are not available')
+        writeJson(res, 200, await deps.transport.models())
+        return
+      }
+      if (path === 'models' && req.method === 'POST') {
+        const body = await readBody(req)
+        if (!isRecord(body)) throw new BadRequest('Request body must be an object')
+        const role = body.role
+        if (role !== 'orchestrator' && role !== 'worker') throw new BadRequest('role must be "orchestrator" or "worker"')
+        const model = body.model === null ? null : roleModelOf(body.model)
+        if (body.model !== null && !model) throw new BadRequest('model must be null or { provider, model, reasoningEffort? }')
+        if (deps.transport.mode() !== 'superagent') throw new Conflict('Superagent is not available; model settings need it')
+        if (!deps.transport.setModel) throw new NotFound('Model settings are not available')
+        writeJson(res, 200, await deps.transport.setModel(role, model))
+        return
+      }
       if (path === 'wechat/start' && req.method === 'POST') {
         if (!deps.wechat) throw new NotFound('WeChat bridge is not available')
         const result = await deps.wechat.ensure()
@@ -181,6 +200,10 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
           writeJson(res, 200, { result: 'duplicate', ...view(selectedTopic) })
           return
         }
+        // A worker-model directive must resolve before the message is stored, so an unknown model is
+        // reported without starting work under a different model.
+        const directive = await deps.transport.workerModel?.(text)
+        if (directive && 'error' in directive) throw new BadRequest(directive.error)
         const topics = deps.store.resolveTags(topicNames(requested), at)
         const { message, created } = deps.store.appendUser({
           id: clientId,
@@ -198,7 +221,7 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
           return found ? [found] : []
         })
         try {
-          await deps.transport.deliver(message, storedTopics)
+          await deps.transport.deliver(message, storedTopics, directive?.model ? { workerModel: directive.model } : undefined)
         } catch (error) {
           deps.store.appendAgent({
             id: 'error-' + clientId,
@@ -261,7 +284,9 @@ export function createApi(deps: ApiDeps): (req: IncomingMessage, res: ServerResp
       const isStoreClientError = message === 'A topic name is required'
         || message === 'Too many topics'
         || message === 'Create at least one topic before tagging existing messages'
-      const status = error instanceof NotFound ? 404 : (error instanceof BadRequest || isStoreClientError) ? 400 : 500
+      const status = error instanceof NotFound ? 404
+        : error instanceof Conflict ? 409
+          : (error instanceof BadRequest || isStoreClientError) ? 400 : 500
       writeJson(res, status, { error: message })
     }
   }
