@@ -25,7 +25,7 @@ English | [简体中文](architecture.zh.md)
 | `src/client/workspace-group.ts` | browser | Wraps the Workspace snapshot to fold ticket Workspaces into the Superagent group. |
 | `src/client/chat.tsx` | browser | Newest-page paging with scroll-up for older pages, the `<No topic>` view, tag input, new topics, per-message tag editing, stop and polling. |
 | `src/client/api.ts` | browser | Same-origin request helper (`x-super-chat-request`, JSON body, typed errors) used by every panel request. |
-| `src/client/models.tsx` | browser | The Models entry and dialog: orchestrator and default-worker selectors backed by the catalog and role settings. |
+| `src/client/models.tsx` | browser | The Models entry in the composer and its dialog: orchestrator and default-worker selectors backed by the catalog and role settings. |
 | `src/client/markdown.tsx` | browser | Safe Markdown-to-React rendering for agent replies; the parser covers common chat syntax and never interprets authored HTML. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
 | `src/client/text.ts` | browser | Relative and short-date timestamp formatting for message metadata. |
