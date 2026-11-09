@@ -8,12 +8,18 @@
  * the prototype is changed.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { SessionId } from '@deepseek-ai/dsh-session'
+import {
+  EMPTY_MODEL_ROLES, modelLabel, parseWorkerModelDirective, resolveModelRef, roleModelOf,
+  type ModelRole, type ModelRolesView, type RoleModel,
+} from './models.ts'
 import {
   GENERAL_CHAT, MAX_TAGS, VIEW_LIMIT, capText, validTopicId,
   type ChatMessage, type Topic,
 } from './protocol.ts'
 import type { ChatStore } from './store.ts'
-import type { ChatTransport } from './transport.ts'
+import type { ChatTransport, DeliverOptions } from './transport.ts'
 import { ensureWorkspaceGroup } from './workspace-group-host.ts'
 import type { WorkspaceGroupInfo } from './workspace-group.ts'
 
@@ -31,6 +37,12 @@ const WATCH_MS = 2000
 const READY_TIMEOUT_MS = 10_000
 /** Marks a patched Setup class prototype, and stores the original method for diagnostics. */
 const SETUP_PATCH = Symbol.for('dsh-super-chat.chat-only-setup')
+/** The documented prefix of a prototype worker Session id: `worker-<ticket id>`. */
+const WORKER_SESSION_PREFIX = 'worker-'
+/** How long a worker-model directive waits for its Ticket's worker Session before it is forgotten. */
+const WORKER_MODEL_TTL_MS = 30 * 60_000
+/** Most worker-model directives remembered at once; the oldest is dropped first. */
+const WORKER_MODEL_LIMIT = 50
 
 interface Localized { zh: string; en: string }
 interface AllowedSender { id: string; name?: string }
@@ -41,6 +53,8 @@ interface Schema<T> {
 interface SettingsLike {
   sources: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>
   policy: { sources: Record<string, { allowed?: AllowedSender[] } & Record<string, unknown>> } & Record<string, unknown>
+  eval?: { model?: unknown } & Record<string, unknown>
+  executor?: { model?: unknown } & Record<string, unknown>
   [key: string]: unknown
 }
 interface TriggerLike {
@@ -70,7 +84,7 @@ interface ContextMessageLike {
   bot?: true
 }
 interface ThreadLike { subscriptions?: string[] }
-interface TicketLike { id: string; ended?: unknown }
+interface TicketLike { id: string; ended?: unknown; origin?: { triggerId?: string } }
 interface SourceContextLike {
   receive(trigger: TriggerLike): unknown | Promise<unknown>
   report(entry: string, health: { state: 'starting' | 'ready' | 'paused' | 'error'; detail: string; at?: string }): void
@@ -169,6 +183,101 @@ const failureText = (error: unknown): string => {
   const text = error instanceof Error ? error.message : String(error)
   return capText(text.replace(/\s+/gu, ' ').trim() || 'unknown error', ERROR_TEXT_MAX)
 }
+
+/** A worker-model directive waiting for the new Ticket's worker Session. */
+interface PendingWorkerModel {
+  messageId: string
+  tags: string[]
+  model: RoleModel
+  timer: NodeJS.Timeout
+}
+
+/** Convert a catalog route into the Session event's selection value. */
+const toSelection = (model: RoleModel): ModelSelection => ({
+  provider: model.provider,
+  model: model.model,
+  ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort as NonNullable<ModelSelection['reasoningEffort']> } : {}),
+})
+
+/**
+ * The DSH request waterfalls that carry one selection to the next request. DSH's live model
+ * selection cache does not observe a `model/selection` event appended by another plugin, so the
+ * selection is also injected into prompt assembly and the request, as the prototype does for its
+ * own role model.
+ */
+interface SessionEventLike {
+  type: string
+  data?: { header?: { config?: { provider?: unknown; model?: unknown; reasoningEffort?: unknown } } }
+}
+
+interface AgentContextLike {
+  effect(factory: () => () => void): void
+  on(event: 'system-prompt/assemble', listener: (assembly: unknown, context: unknown, next: () => Promise<unknown>) => Promise<unknown>,
+    options: { prepend: true }): () => void
+  on(event: 'agent/request', listener: (payload: unknown, next: () => Promise<unknown>) => Promise<unknown>,
+    options: { prepend: true }): () => void
+  on(event: 'session/event', listener: (session: unknown, event: SessionEventLike) => void): () => void
+}
+
+interface ForcedModel {
+  /** The selection to force on the next request; cleared by that request's header. */
+  pending?: ModelSelection
+}
+
+const forcedModels = new WeakMap<Agent, ForcedModel>()
+
+/** Install the one-shot request override once per Agent and return its mutable state. */
+function forcedModel(agent: Agent): ForcedModel {
+  const existing = forcedModels.get(agent)
+  if (existing) return existing
+  const state: ForcedModel = {}
+  forcedModels.set(agent, state)
+  let assembled: ModelSelection | undefined
+  const scoped = agent.ctx as unknown as AgentContextLike
+  scoped.effect(() => {
+    const disposers = [
+      scoped.on('system-prompt/assemble', async (_assembly, _context, next) => {
+        const selected = state.pending
+        const result = await next() as { variables?: Record<string, unknown> }
+        assembled = selected
+        return selected
+          ? { ...result, variables: { ...(result.variables ?? {}), provider: selected.provider, model: selected.model } }
+          : result
+      }, { prepend: true }),
+      scoped.on('agent/request', async (_payload, next) => {
+        const result = await next() as Record<string, unknown>
+        const selected = assembled
+        assembled = undefined
+        if (!selected) return result
+        const { reasoningEffort: _inherited, ...rest } = result
+        return { ...rest, ...selected }
+      }, { prepend: true }),
+      scoped.on('session/event', (session, event) => {
+        // A header that matches our selection proves the override reached that request; a header
+        // already in flight when the selection was offered must not clear it.
+        if (session !== agent.session || event.type !== 'request/header' || !state.pending) return
+        const config = event.data?.header?.config
+        if (!config) return
+        const pending = state.pending
+        if (config.provider === pending.provider && config.model === pending.model
+          && (config.reasoningEffort ?? '') === (pending.reasoningEffort ?? '')) state.pending = undefined
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  })
+  return state
+}
+
+/** Record the selection on the Session and force it onto the next request. */
+function offerModel(agent: Agent, model: RoleModel): void {
+  const selection = toSelection(model)
+  agent.session.append('model/selection', selection)
+  forcedModel(agent).pending = selection
+}
+
+/** Whether a settings failure is an optimistic-concurrency conflict worth retrying. */
+const isSettingsConflict = (error: unknown): boolean =>
+  (error instanceof Error ? error.message : String(error)).includes('Settings changed')
 
 /** Prefix the original text with a short topic cue; the chat keeps the user's original text. */
 export function cueText(message: Pick<ChatMessage, 'text'>, topics: readonly Topic[]): string {
@@ -374,6 +483,9 @@ export class SuperagentChat implements ChatTransport {
   private timer?: NodeJS.Timeout
   private syncing = false
   private stopped = false
+  private offCreated?: () => void
+  /** Worker-model directives waiting for the new Ticket's `worker-<ticket id>` Session. */
+  private readonly pending = new Map<string, PendingWorkerModel>()
 
   constructor(
     private readonly ctx: Context,
@@ -385,6 +497,9 @@ export class SuperagentChat implements ChatTransport {
     if (this.timer) return
     this.timer = setInterval(() => { void this.refresh() }, WATCH_MS)
     this.timer.unref?.()
+    // A directive names a model before the Ticket exists; `agent/created` runs before the worker's
+    // first request, so the selection is in place before the Executor seeds its configured default.
+    this.offCreated = this.ctx.on('agent/created', ({ agent }) => { this.onAgentCreated(agent) })
     void this.refresh()
   }
 
@@ -392,6 +507,10 @@ export class SuperagentChat implements ChatTransport {
     this.stopped = true
     if (this.timer) clearInterval(this.timer)
     this.timer = undefined
+    this.offCreated?.()
+    this.offCreated = undefined
+    for (const pending of this.pending.values()) clearTimeout(pending.timer)
+    this.pending.clear()
     this.clear()
   }
 
@@ -404,12 +523,15 @@ export class SuperagentChat implements ChatTransport {
     return registration.orchestrator.store.settings().policy.sources[SOURCE] !== undefined
   }
 
-  async deliver(message: ChatMessage, topics: Topic[]): Promise<void> {
+  async deliver(message: ChatMessage, topics: Topic[], options?: DeliverOptions): Promise<void> {
     const registration = this.registration
     if (!registration || !this.available()) throw new Error('Superagent is not available')
+    const trigger = chatTrigger(message, topics)
+    if (options?.workerModel) this.trackWorkerModel(trigger.id, message, options.workerModel)
     try {
-      await registration.context.receive(chatTrigger(message, topics))
+      await registration.context.receive(trigger)
     } catch (error) {
+      if (options?.workerModel) this.removePending(trigger.id)
       this.store.appendAgent({
         id: 'error-' + message.id,
         text: 'Could not deliver this message: ' + failureText(error),
@@ -417,6 +539,62 @@ export class SuperagentChat implements ChatTransport {
         tags: message.tags,
         kind: 'error',
       })
+    }
+  }
+
+  /** Read the configured role models together with the profile's catalog. */
+  async models(): Promise<ModelRolesView> {
+    const registration = this.registration
+    if (!registration || !this.available()) return EMPTY_MODEL_ROLES
+    try {
+      const catalog = await this.ctx.sessionController.modelCatalog()
+      const settings = registration.orchestrator.store.settings()
+      return {
+        available: true,
+        ...(catalog.default ? { default: roleModelOf(catalog.default) ?? undefined } : {}),
+        orchestrator: roleModelOf(settings.eval?.model),
+        worker: roleModelOf(settings.executor?.model),
+        groups: catalog.groups,
+        failures: catalog.failures,
+      }
+    } catch (error) {
+      const detail = failureText(error)
+      this.log('Could not read the model settings: ' + detail)
+      return { ...EMPTY_MODEL_ROLES, error: detail }
+    }
+  }
+
+  /** Save one role model; a null model makes that role inherit the deployment default. */
+  async setModel(role: ModelRole, model: RoleModel | null): Promise<ModelRolesView> {
+    const registration = this.registration
+    if (!registration || !this.available()) throw new Error('Superagent is not available; model settings need it')
+    const orchestrator = registration.orchestrator
+    const block = role === 'orchestrator' ? 'eval' : 'executor'
+    for (let attempt = 0; ; attempt++) {
+      const current = orchestrator.store.settings()
+      const base = isRecord(current[block]) ? current[block] : {}
+      try {
+        await orchestrator.settings.save(block, { ...base, model }, orchestrator.store.blockRevision(block), 'panel')
+        break
+      } catch (error) {
+        if (attempt >= 2 || !isSettingsConflict(error)) throw error
+        await delay(50)
+      }
+    }
+    if (role === 'orchestrator') await this.switchOrchestrator(orchestrator, model)
+    return this.models()
+  }
+
+  /** Resolve the model reference of a worker-model chat directive; no directive returns undefined. */
+  async workerModel(text: string): Promise<{ model: RoleModel } | { error: string } | undefined> {
+    const ref = parseWorkerModelDirective(text)
+    if (!ref) return undefined
+    if (!this.available()) return undefined
+    try {
+      const catalog = await this.ctx.sessionController.modelCatalog()
+      return resolveModelRef(ref, catalog.groups)
+    } catch (error) {
+      return { error: 'Could not read the model list: ' + failureText(error) }
     }
   }
 
@@ -491,6 +669,87 @@ export class SuperagentChat implements ChatTransport {
       registration.group = await ensureWorkspaceGroup(this.ctx, registration.orchestrator)
     } catch (error) {
       this.log('Superagent workspace group is unavailable: ' + failureText(error))
+    }
+  }
+
+  /**
+   * Give a directive's model to the new worker Session before its first request. The prototype
+   * seeds the configured Executor model in `Sessions.ensure` after the Session is created, so this
+   * listener runs first and a Session that already made a request keeps its model. A listener must
+   * never fail Session creation, so every panel-side failure stays in the log.
+   */
+  private onAgentCreated(agent: Agent): void {
+    try { this.applyWorkerModel(agent) } catch (error) { this.log('Worker model setup failed: ' + failureText(error)) }
+  }
+
+  private applyWorkerModel(agent: Agent): void {
+    if (this.pending.size === 0) return
+    const sessionId = String(agent.id)
+    if (!sessionId.startsWith(WORKER_SESSION_PREFIX)) return
+    const ticketId = sessionId.slice(WORKER_SESSION_PREFIX.length)
+    let ticket: TicketLike | undefined
+    try { ticket = this.registration?.context.tickets.get(ticketId) } catch { return }
+    const triggerId = ticket?.origin?.triggerId
+    if (!triggerId) return
+    const pending = this.pending.get(triggerId)
+    if (!pending) return
+    try {
+      if (agent.session.requestHeader()) {
+        this.clearPending(triggerId, pending)
+        return
+      }
+      offerModel(agent, pending.model)
+    } catch (error) {
+      this.log('Could not set the worker model: ' + failureText(error))
+      this.clearPending(triggerId, pending)
+      return
+    }
+    this.clearPending(triggerId, pending)
+    this.store.appendAgent({
+      id: 'model-' + pending.messageId,
+      text: 'Worker model: ' + modelLabel(pending.model) + '.',
+      at: new Date().toISOString(),
+      tags: pending.tags,
+      kind: 'note',
+    })
+  }
+
+  /** Remember a directive until its Ticket creates the worker Session, bounded in time and count. */
+  private trackWorkerModel(triggerId: string, message: ChatMessage, model: RoleModel): void {
+    const previous = this.pending.get(triggerId)
+    if (previous) clearTimeout(previous.timer)
+    while (this.pending.size >= WORKER_MODEL_LIMIT) {
+      const oldest = this.pending.keys().next().value
+      if (oldest === undefined) break
+      this.removePending(oldest)
+    }
+    const timer = setTimeout(() => { this.pending.delete(triggerId) }, WORKER_MODEL_TTL_MS)
+    timer.unref?.()
+    this.pending.set(triggerId, { messageId: message.id, tags: [...message.tags], model, timer })
+  }
+
+  private clearPending(triggerId: string, pending: PendingWorkerModel): void {
+    clearTimeout(pending.timer)
+    if (this.pending.get(triggerId) === pending) this.pending.delete(triggerId)
+  }
+
+  private removePending(triggerId: string): void {
+    const pending = this.pending.get(triggerId)
+    if (!pending) return
+    clearTimeout(pending.timer)
+    this.pending.delete(triggerId)
+  }
+
+  /** Switch the live orchestrator Session as well; the saved `eval.model` covers later Sessions. */
+  private async switchOrchestrator(orchestrator: OrchestratorLike, model: RoleModel | null): Promise<void> {
+    if (!orchestrator.masterId) return
+    try {
+      const agent = this.ctx.agents.get(orchestrator.masterId as SessionId)
+      if (!agent) return
+      const selected = model ?? roleModelOf((await this.ctx.sessionController.modelCatalog()).default)
+      if (selected) offerModel(agent, selected)
+    } catch (error) {
+      this.log('Could not switch the orchestrator model: ' + failureText(error))
     }
   }
 

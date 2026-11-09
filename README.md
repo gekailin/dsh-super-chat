@@ -30,6 +30,7 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
 - **Manual tag editing**: each message's tag row can add or remove tags and save; only that message changes, a new name creates a topic, and no work is dispatched.
 - **Markdown replies**: agent replies render common Markdown (headings, lists, quotes, links, fenced and inline code); each reply has a **Raw** button that switches it back to the original text. User messages stay as authored.
+- **Model settings**: the sidebar's **Models** entry chooses the orchestrator model and the default model for new workers from the profile catalog. A chat message such as `用 gemini-4-argon 模型启动一个新 worker 做…` or `use gemini-4-argon model to start a new worker for…` gives that one new worker the named model without changing the default.
 - **Superagent Tickets**: acknowledgements, answers and results come back with their tags. A chat-only prototype with no GitHub repository or CLI can still take work.
 - **Workspace grouping**: with the prototype installed, the orchestrator's Workspace and each ticket worker's Workspace appear as one **Superagent** group with the orchestrator pinned on top. The merge is presentation-only and does not move a Session's working directory.
 - **SQLite**: messages, topics and message-topic links live in indexed tables; an old `chat.json` is migrated once.
@@ -116,6 +117,8 @@ When `dsh-superagent-prototype` is installed in the same profile, its runtime ex
 - **Untagged**: uses `super-chat:general`; the general chat is left entirely to Superagent.
 - **Chat-only**: the prototype's setup normally requires a GitHub repository and signed-in `gh` CLI. When both GitHub fields are empty the plugin wraps the prototype's `Setup` class in memory, accepts an empty deployment and asks the prototype to restart. No prototype file is modified. Workers in that mode have no GitHub tooling. This compatibility path covers the chat Source only; if Feishu is also needed, configure GitHub as the prototype expects so its original setup can handle Feishu.
 - **Workspace grouping**: the prototype creates a Workspace for every ticket directory. The plugin keeps one **Superagent** Workspace over the prototype's state directory and folds ticket Workspaces into that group in the browser; the orchestrator Session is pinned first. `docs/architecture.md` records the mechanics and limits.
+- **Models**: the **Models** dialog reads `eval.model` and `executor.model` through the prototype's public settings API and writes them back with the current block revision, so it shares the prototype's validation and history. Saving the orchestrator model also appends a model selection to the live orchestrator Session, so it takes effect on its next request; the worker model applies to worker Sessions created afterwards.
+- **One worker's model**: when a message asks to start a new worker with a named model, the plugin resolves the name against the catalog before storing the message. For the accepted Ticket it remembers the selection, then appends it to the `worker-<ticket id>` Session as DSH creates it, before the prototype seeds the configured default. The chat shows a short note once the model is applied. An unknown or ambiguous name is reported and the message is not sent.
 - **Fallback**: when the service is absent, unconfigured, or the patch no longer applies, `GeneralSession` handles every message in one DSH Session; topic tags are only hints.
 
 ## Permissions and approvals
@@ -146,7 +149,7 @@ The bridge listens on `127.0.0.1:8790`; the on-demand manager stores login and c
 
 - Chats are stored in `chat.sqlite` under `stateDir` and never uploaded by this plugin. Messages reach the configured model provider like any DSH Session; do not paste secrets into a chat.
 - The HTTP API is same-origin with the DSH Web UI and requires `x-super-chat-request: 1`, a matching `Host` and no foreign `Origin`. This is CSRF protection, not authentication; the DSH Web Server still authenticates the human. Keep it on loopback unless you understand the exposure.
-- Superagent Tickets use the prototype's execution environment and permissions; this plugin only writes SQLite, registers one HTTP route and reads Session events.
+- Superagent Tickets use the prototype's execution environment and permissions; this plugin writes SQLite, registers the `/super-chat` HTTP route, reads Session events and, on an explicit panel save or a worker-model chat directive, saves a role model or appends a model selection.
 - No analytics, telemetry, remote fonts or external assets.
 
 ## Limitations
@@ -157,6 +160,7 @@ The bridge listens on `127.0.0.1:8790`; the on-demand manager stores login and c
 - Topics are labels and dispatch cues, not strict partitions; the first tag chooses the dispatch thread and Superagent may still decide otherwise.
 - The fallback has a single Session, so every message shares one model context; tagged replies inherit their turn's tags and appear in both All messages and their matching topic views.
 - The plugin does not ship a ticket pipeline or worker pool; those come from `dsh-superagent-prototype`.
+- Model settings need the prototype; without it the dialog explains that Superagent is unavailable. A chat directive only affects a newly created worker Session — a message that joins an existing Ticket keeps that worker's model — and names must match a catalog model id or display name (use `provider/model` when a bare id is ambiguous). A pending directive is forgotten after 30 minutes.
 - Multi-user behavior is limited to what the DSH Web Server already provides.
 - The panel uses absolute `/super-chat/api` paths and checks the configured bind host; path-prefix or different-authority reverse proxies are not supported.
 
@@ -173,7 +177,7 @@ cd wechat && npm test
 
 For a local run, install the checkout into a disposable profile on an unused port and point `stateDir` at a temporary directory.
 
-Layout: `src/index.ts` (host entry), `src/store.ts` (SQLite), `src/session.ts` (fallback Session), `src/transport.ts` (transport selection), `src/superagent.ts` (super-chat Source and chat-only patch), `src/tagger.ts` (auto-tagging), `src/wechat-bridge.ts` (WeChat bridge lifecycle), `src/workspace-group.ts` and `src/workspace-group-host.ts` (Superagent workspace grouping), `src/api.ts` (HTTP API), `src/monkey.ts` (list patch), `src/protocol.ts` (shared types), `src/client/` (browser half).
+Layout: `src/index.ts` (host entry), `src/store.ts` (SQLite), `src/session.ts` (fallback Session), `src/transport.ts` (transport selection), `src/superagent.ts` (super-chat Source, model settings and the chat-only patch), `src/models.ts` (role models, catalog resolution and the worker-model directive), `src/tagger.ts` (auto-tagging), `src/wechat-bridge.ts` (WeChat bridge lifecycle), `src/workspace-group.ts` and `src/workspace-group-host.ts` (Superagent workspace grouping), `src/api.ts` (HTTP API), `src/monkey.ts` (list patch), `src/protocol.ts` (shared types), `src/client/` (browser half).
 
 ## License
 

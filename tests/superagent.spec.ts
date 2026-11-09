@@ -16,7 +16,33 @@ interface TestSettings {
   [key: string]: unknown
 }
 interface TestThread { subscriptions: string[] }
-interface TestTicket { id: string; ended?: unknown }
+interface TestTicket { id: string; ended?: unknown; origin?: { triggerId?: string } }
+interface TestAgent {
+  id: string
+  session: {
+    requestHeader(): unknown
+    append: ReturnType<typeof vi.fn>
+    snapshotEvents(): { type: string; data: unknown }[]
+  }
+  ctx: {
+    listeners: Record<string, ((...args: unknown[]) => unknown) | undefined>
+    effect(factory: () => (() => void) | undefined): void
+    on(event: string, listener: (...args: unknown[]) => unknown, options?: unknown): () => void
+  }
+}
+
+const catalog = {
+  default: { provider: 'mccodex', model: 'deepseek-v4.1-flash' },
+  groups: [{
+    id: 'mccodex',
+    name: 'MCCODEX',
+    models: [
+      { id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', reasoning: { efforts: [{ id: 'high', name: 'High' }] } },
+      { id: 'glm-5.3', name: 'GLM 5.3' },
+    ],
+  }],
+  failures: [],
+}
 
 const stores: ChatStore[] = []
 const dirs: string[] = []
@@ -33,6 +59,8 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
   let settings: TestSettings = {
     sources: { github: { enabled: false, config: options.github ?? { repository: '', cli: '' } } },
     policy: { sources: options.policy ?? {} },
+    eval: { model: null },
+    executor: { model: null },
   }
   const Setup = class {
     resolved?: unknown
@@ -50,6 +78,38 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
   const received: unknown[] = []
   const threads = new Map<string, TestThread>()
   const tickets = new Map<string, TestTicket>()
+  const agents = new Map<string, TestAgent>()
+  let created: ((payload: { agent: TestAgent }) => void) | undefined
+  const agentOf = (id: string): TestAgent => {
+    const events: { type: string; data: unknown }[] = []
+    let header: unknown
+    const listeners: Record<string, ((...args: unknown[]) => unknown) | undefined> = {}
+    return {
+      id,
+      session: {
+        requestHeader: () => header,
+        append: vi.fn((type: string, data: unknown) => { events.push({ type, data }); return {} }),
+        snapshotEvents: () => events,
+        responded() { header = { id: 'request-1' } },
+      } as unknown as TestAgent['session'],
+      ctx: {
+        listeners,
+        effect(factory) { factory() },
+        on(event, listener) {
+          listeners[event] = listener
+          return () => { if (listeners[event] === listener) delete listeners[event] }
+        },
+      },
+    }
+  }
+  /** Run one captured waterfall listener with the given inner result. */
+  const waterfall = async (agent: TestAgent, event: 'system-prompt/assemble' | 'agent/request', result: unknown): Promise<unknown> => {
+    const listener = agent.ctx.listeners[event]
+    if (!listener) throw new Error('listener not captured: ' + event)
+    return event === 'system-prompt/assemble'
+      ? listener({}, {}, async () => result)
+      : listener({}, async () => result)
+  }
   const context = {
     receive: vi.fn(async (trigger: unknown) => { received.push(trigger); return 'stored' }),
     report: vi.fn((entry: string, health: unknown) => { reports.push({ entry, health }) }),
@@ -58,6 +118,7 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
   }
   const save = vi.fn(async (block: string, value: unknown) => {
     if (block === 'policy') settings = { ...settings, policy: value as TestSettings['policy'] }
+    if (block === 'eval' || block === 'executor') settings = { ...settings, [block]: value }
   })
   const orchestrator: OrchestratorLike = {
     ready: Promise.resolve(),
@@ -84,10 +145,19 @@ function harness(options: { configured?: boolean; github?: Record<string, unknow
   }
   const ctx = {
     get: (name: string) => name === 'orchestrator' ? orchestrator : undefined,
+    on: (event: string, listener: (payload: { agent: TestAgent }) => void) => {
+      if (event === 'agent/created') created = listener
+      return () => { if (event === 'agent/created') created = undefined }
+    },
+    agents: { get: (id: string) => agents.get(id) },
+    sessionController: { modelCatalog: vi.fn(async () => catalog) },
     ...(options.grouping === false ? {} : { workspaceRegistry }),
   } as unknown as Context
   return {
     store, settings: () => settings, setup, orchestrator, ctx, registered, reports, received, threads, tickets, save, context,
+    agents, agentOf, waterfall, catalog,
+    emitCreated(agent: TestAgent) { created?.({ agent }) },
+    hasCreatedListener: () => created !== undefined,
     workspaceRegistry, groupSessions, pinnedSessions,
     setConfigured(value: boolean) { configured = value },
   }
@@ -256,5 +326,107 @@ describe('superagent integration', () => {
     await refreshing
     expect(unregistered).toBe(0)
     expect(chat.available()).toBe(false)
+  })
+
+  it('reads and saves the orchestrator and worker role models', async () => {
+    const h = harness({ configured: true })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    expect(await chat.models()).toMatchObject({
+      available: true,
+      default: { provider: 'mccodex', model: 'deepseek-v4.1-flash' },
+      orchestrator: null,
+      worker: null,
+      groups: catalog.groups,
+      failures: [],
+    })
+
+    const worker = { provider: 'mccodex', model: 'glm-5.3' }
+    expect((await chat.setModel('worker', worker)).worker).toEqual(worker)
+    expect(h.save).toHaveBeenCalledWith('executor', expect.objectContaining({ model: worker }), 1, 'panel')
+
+    const master = h.agentOf('orchestrator-test')
+    h.agents.set('orchestrator-test', master)
+    const orchestrator = { provider: 'mccodex', model: 'deepseek-v4.1-flash', reasoningEffort: 'high' }
+    expect((await chat.setModel('orchestrator', orchestrator)).orchestrator).toEqual(orchestrator)
+    expect(master.session.append).toHaveBeenCalledWith('model/selection', orchestrator)
+    expect(await h.waterfall(master, 'system-prompt/assemble', { variables: { provider: 'base', model: 'base' } }))
+      .toEqual(expect.objectContaining({ variables: expect.objectContaining({ provider: 'mccodex', model: 'deepseek-v4.1-flash' }) }))
+    expect(await h.waterfall(master, 'agent/request', { provider: 'base', model: 'base' })).toEqual(orchestrator)
+
+    expect((await chat.setModel('worker', null)).worker).toBeNull()
+    expect(h.settings().executor).toMatchObject({ model: null })
+    chat.stop()
+  })
+
+  it('reports model settings as unavailable without Superagent', async () => {
+    const h = harness({ configured: false })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    expect(await chat.models()).toMatchObject({ available: false, orchestrator: null, worker: null, groups: [] })
+    chat.stop()
+  })
+
+  it('resolves a worker-model chat directive through the catalog', async () => {
+    const h = harness({ configured: true })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    expect(await chat.workerModel('用 glm-5.3 模型启动一个新 worker 做 x'))
+      .toEqual({ model: { provider: 'mccodex', model: 'glm-5.3' } })
+    expect(await chat.workerModel('用 nope 模型启动一个新 worker 做 x'))
+      .toEqual({ error: expect.stringContaining('Unknown model') })
+    expect(await chat.workerModel('just fix it')).toBeUndefined()
+    chat.stop()
+  })
+
+  it('gives a directive its model before the new worker Session makes a request', async () => {
+    const h = harness({ configured: true })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    chat.start()
+    expect(h.hasCreatedListener()).toBe(true)
+    const design = h.store.ensureTopic('Design', at)
+    const entry = message([design.id])
+    h.tickets.set('ticket-1', { id: 'ticket-1', origin: { triggerId: 'super-chat-' + entry.id } })
+    const directive = { provider: 'mccodex', model: 'glm-5.3' }
+    await chat.deliver(entry, [design], { workerModel: directive })
+
+    const worker = h.agentOf('worker-ticket-1')
+    h.emitCreated(worker)
+    expect(worker.session.append).toHaveBeenCalledWith('model/selection', directive)
+    // DSH's live selection cache does not observe the appended event, so the override must also
+    // reach prompt assembly and the request itself.
+    expect(await h.waterfall(worker, 'system-prompt/assemble', { variables: { provider: 'base', model: 'base' } }))
+      .toEqual({ variables: { provider: 'mccodex', model: 'glm-5.3' } })
+    expect(await h.waterfall(worker, 'agent/request', { provider: 'base', model: 'base', reasoningEffort: 'low' }))
+      .toEqual({ provider: 'mccodex', model: 'glm-5.3' })
+    // A request already in flight when the model was offered must not consume the override.
+    worker.ctx.listeners['session/event']!(worker.session, { type: 'request/header', data: { header: { config: { provider: 'base', model: 'base' } } } })
+    expect(await h.waterfall(worker, 'system-prompt/assemble', { variables: { provider: 'base', model: 'base' } }))
+      .toEqual({ variables: { provider: 'mccodex', model: 'glm-5.3' } })
+    worker.ctx.listeners['session/event']!(worker.session, { type: 'request/header', data: { header: { config: directive } } })
+    expect(await h.waterfall(worker, 'system-prompt/assemble', { variables: { provider: 'base', model: 'base' } }))
+      .toEqual({ variables: { provider: 'base', model: 'base' } })
+    expect(h.store.messages().at(-1)).toMatchObject({ role: 'agent', kind: 'note', tags: [design.id] })
+    expect(h.store.messages().at(-1)?.text).toContain('mccodex / glm-5.3')
+    // The directive is consumed: a later creation for the same Ticket is not rewritten.
+    h.emitCreated(h.agentOf('worker-ticket-1'))
+    expect(worker.session.append).toHaveBeenCalledTimes(1)
+    chat.stop()
+  })
+
+  it('keeps the model of a worker Session that already made a request', async () => {
+    const h = harness({ configured: true })
+    const chat = new SuperagentChat(h.ctx, h.store)
+    await chat.refresh()
+    chat.start()
+    const entry = message()
+    h.tickets.set('ticket-1', { id: 'ticket-1', origin: { triggerId: 'super-chat-' + entry.id } })
+    await chat.deliver(entry, [], { workerModel: { provider: 'mccodex', model: 'glm-5.3' } })
+    const worker = h.agentOf('worker-ticket-1')
+    ;(worker.session as unknown as { responded(): void }).responded()
+    h.emitCreated(worker)
+    expect(worker.session.append).not.toHaveBeenCalled()
+    expect(h.store.messages().some(item => item.kind === 'note')).toBe(false)
+    chat.stop()
   })
 })

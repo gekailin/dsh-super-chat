@@ -41,8 +41,8 @@ export interface ChatMessage {
   text: string
   at: string
   tags: string[]
-  /** An inline delivery or turn failure rather than model output. */
-  kind?: 'error'
+  /** An inline delivery or turn failure, or a short panel note rather than model output. */
+  kind?: 'error' | 'note'
   /** Where the message entered the chat. */
   via?: 'panel' | 'wechat'
 }

@@ -1,6 +1,6 @@
 # 架构
 
-本文说明单流聊天、主题标签、SQLite 存储、superagent 分发、工作区分组、浏览器/宿主拆分、HTTP 契约，以及两个窄补丁。
+本文说明单流聊天、主题标签、SQLite 存储、superagent 分发、模型设置、工作区分组、浏览器/宿主拆分、HTTP 契约，以及两个窄补丁。
 
 [English](architecture.md) | 简体中文
 
@@ -12,7 +12,8 @@
 | `src/store.ts` | host | `chat.sqlite`：消息、主题、消息-主题关系、索引、旧 `chat.json` 迁移，以及手动替换单条消息的标签。 |
 | `src/session.ts` | host | superagent 不可用时的单个兜底 DSH Session（`super-chat-general`）。 |
 | `src/transport.ts` | host | `ChatTransportRouter`：按当前可用性在 superagent 和兜底 Session 之间选择。 |
-| `src/superagent.ts` | host | 核心 `super-chat` Source、主题 dispatch、Channel/Thread context，以及仅内存中的 chat-only Setup 补丁。 |
+| `src/superagent.ts` | host | 核心 `super-chat` Source、主题 dispatch、Channel/Thread context、角色模型设置、单 worker 模型指令，以及仅内存中的 chat-only Setup 补丁。 |
+| `src/models.ts` | both | 宿主和对话框共用的角色模型形状、模型目录视图、worker 模型指令解析与引用解析。 |
 | `src/tagger.ts` | host | 按需用 profile 默认模型给已有消息判断主题；只补空标签，agent 回复继承标签。 |
 | `src/wechat-bridge.ts` | host | 微信桥生命周期与保活：未登录时按需启动，已有登录凭据时自动恢复并巡检保活；探测/复用外部桥，只停止自己启动的进程。 |
 | `src/api.ts` | host | `/super-chat/api/*`：请求校验、同源守卫、主题解析和消息存储。 |
@@ -23,6 +24,8 @@
 | `src/client/index.tsx` | browser | 注册 `main` 面板、词典和 `sidebar.panellist` 入口；在 Superagent 行标题右侧挂 Super Chat 快捷入口，找不到时保留独立入口。 |
 | `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
 | `src/client/chat.tsx` | browser | 最新一页优先、上滚加载更早分页、`<无主题>` 视图、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
+| `src/client/api.ts` | browser | 同源请求辅助（`x-super-chat-request`、JSON body、类型化错误），所有面板请求共用。 |
+| `src/client/models.tsx` | browser | 「模型」入口与对话框：基于模型目录和角色设置选择 orchestrator 与默认 worker 模型。 |
 | `src/client/markdown.tsx` | browser | agent 回复的安全 Markdown 到 React 渲染；覆盖常见聊天语法，不解析用户写入的 HTML。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/text.ts` | browser | 消息元数据的相对时间与简短日期格式化。 |
@@ -93,6 +96,16 @@ ChatTransportRouter
 - Thread context 读取该 dispatch topic 的消息；没有标签时读取通用流。
 - 主题是线索而不是硬分区：Superagent 仍然可以重新判断，或把消息交给其它工单。
 
+### 模型
+
+「模型」对话框通过 `sessionController.modelCatalog()` 读取 profile 的模型目录，并通过 `store.settings()` 读取 prototype 当前的 `eval.model` 与 `executor.model`。保存时把当前 block 的完整值加上选中的 `model` 交给 `settings.save(block, value, blockRevision(block), 'panel')`：沿用 prototype 的路由校验和保存历史；并发保存导致 block revision 变化时插件重试一次。角色保存为 `model: null` 表示继承部署默认。
+
+保存 orchestrator 角色时，还会给当前 orchestrator Session（`agent.id === orchestrator.masterId`）追加一条 `model/selection` 事件，使切换在下一次请求生效并持久化；之后新建的 orchestrator Session 读取保存的 `eval.model`。保存 worker 角色只改 `executor.model`，prototype 在创建下一个 worker Session 时读取；已在运行的 worker 保持原模型。
+
+聊天消息可以带 worker 模型指令，中文如 `用 gemini-4-argon 模型启动一个新 worker 做…`，英文如 `use gemini-4-argon model to start a new worker for…`。`src/models.ts` 只在消息同时要求启动/运行 worker 时才识别该短语；模型引用可以是 `provider/model`、精确 model id 或精确显示名，并可用 `@effort` 指定推理档位。`POST /chat` 在存储消息前解析；未知或有歧义的引用返回 400，不产生工作。解析结果随本次投递传递，并按消息的 Trigger id 记住最多 30 分钟（最多 50 条）。
+
+prototype 把 worker Session 命名为 `worker-<工单 id>`（其 `003-execution.md` 有说明），并在 `sessionController.create` 完成后由 `Sessions.ensure` 注入 `executor.model`。插件监听 DSH 公开的 `agent/created` 事件：如果新 Session 所属工单有待应用指令，就在 prototype 注入默认值之前追加该指令的 `model/selection`。DSH 的实时模型选择缓存不会观察其它插件追加的事件，所以插件还会把选择注入到这一次请求的 prompt assembly 和 request waterfall（prototype 为自身角色模型使用的同一套公开机制），并在该请求的 header 后清除。因此 worker 的第一次请求就使用指定模型，之后的请求沿用已记录的 header。orchestrator 的切换使用相同的一次性注入，在下一次请求生效。监听器内部错误只写日志，绝不让 Session 创建失败；已经发过请求的 Session 不改；应用成功后在用户消息的主题里追加一条短 `note` 消息。指令只影响新建的 worker Session；加入已有工单的消息保留该 worker 的模型。
+
 ### 兜底 Session
 
 - 只有一个 Session：`super-chat-general`。
@@ -123,6 +136,8 @@ agent 消息在浏览器里按 Markdown 渲染。解析器覆盖标题、段落�
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
+| GET | `/super-chat/api/models` | — | `{ available, error?, default?, orchestrator, worker, groups, failures }` |
+| POST | `/super-chat/api/models` | `{ role: 'orchestrator' \| 'worker', model: { provider, model, reasoningEffort? } \| null }` | 保存后的同一模型视图 |
 | GET | `/super-chat/api/chat?topic=<id>&before=<id>&limit=<n>` | — | `{ topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | GET | `/super-chat/api/chat?untagged=1&before=<id>&limit=<n>` | — | `{ topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
@@ -142,6 +157,8 @@ agent 消息在浏览器里按 Markdown 渲染。解析器覆盖标题、段落�
 - `chat/tag` 只给未打标签的消息补上已有主题；`tagged` 是本次新增标签的消息数（含继承标签的回复）。
 - `chat/tags` 用提交的标签集合替换一条已有消息的标签；名称会解析并创建缺失主题，空数组表示清空。
 - `mode` 为 `superagent` 或 `session`；`busy` 表示当前视图有未结束的工单或 Session 回合。
+- `models` 读取 profile 模型目录和 prototype 的角色设置；Superagent 不可用时返回 `available: false` 而不是报错。保存会校验 `role`，要求显式 `model` 对象或 `null`；transport 不在 superagent 模式时返回 409，prototype 的校验失败保留其原始错误信息。
+- `POST /chat` 在存储消息前解析 worker 模型指令；未知或有歧义的模型返回 400，不存储消息；其余 `tags` 和去重行为不变。
 
 ## 微信桥
 
@@ -196,5 +213,6 @@ SQLite 的写入在 Node 事件循环里同步执行；一个 profile 只有一�
 ## 兼容性
 
 - `dsh-superagent-prototype` 的 setup 通常要求 GitHub。GitHub 两项为空时，插件在内存中包装其 `Setup` 类，让 `run` 返回空部署，然后请求 prototype 重启；不修改 prototype 文件。该兼容路径只覆盖聊天 Source；需要 Feishu 时仍按原型要求配置 GitHub。若 `Setup.run` 形状变化，补丁失效，聊天退回兜底 Session。
-- prototype 的 Source 注册、Policy 播种和 Channel 只用公开形状；不 import prototype 内部。
+- prototype 的 Source 注册、Policy 播种、Channel 和角色模型设置只用公开形状；不 import prototype 内部。
+- worker 模型指令依赖公开的 DSH 和 prototype 事实：DSH 在 Session 第一次请求前发出 `agent/created`，`system-prompt/assemble` 与 `agent/request` waterfall 可承载注入的选择，prototype 把 worker Session 命名为 `worker-<工单 id>` 并在创建后由 `Sessions.ensure` 注入 `executor.model`。任一变化时指令会停止生效（worker 回到配置的默认模型），其余功能不受影响。
 - 旧 `chat.json` 只导入一次；主题与标签结构由 SQLite schema 和本文档共同描述。

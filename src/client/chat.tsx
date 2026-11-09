@@ -1,6 +1,8 @@
-/** Super Chat panel: one general stream with named topic tags, plus optional WeChat access. */
+/** Super Chat panel: one general stream with named topic tags, plus model settings and WeChat access. */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { sameTopicName, type ChatMessage, type ChatView, type Topic } from '../protocol.ts'
+import { ask, ChatError } from './api.ts'
+import { ModelSettingsButton, ModelSettingsDialog } from './models.tsx'
 import type { T } from './locales.ts'
 import { when } from './text.ts'
 import { mergeTagNames, messageTagNames, parseTagInput, splitTags } from './topics.ts'
@@ -8,7 +10,6 @@ import { Markdown } from './markdown.tsx'
 import { WechatAccessButton, WechatAccessDialog } from './wechat.tsx'
 import STYLES from './chat.css?raw'
 
-const PREFIX = '/super-chat/api'
 const ACTIVE_TOPIC = 'super-chat-topic'
 const UNTAGGED = 'untagged'
 const DRAFT_KEY = 'super-chat-draft'
@@ -19,26 +20,6 @@ const MAX_WIDTH = 420
 const POLL_MS = 2500
 const OLDER_SCROLL_TOP = 80
 const BOTTOM_DISTANCE = 48
-
-class ChatError extends Error {
-  constructor(message: string, readonly status: number) { super(message) }
-}
-
-async function ask<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(PREFIX + path, {
-    ...init,
-    headers: {
-      'x-super-chat-request': '1',
-      ...init?.body ? { 'content-type': 'application/json' } : {},
-      ...init?.headers,
-    },
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({})) as { error?: string }
-    throw new ChatError(body.error || 'Request failed (' + response.status + ')', response.status)
-  }
-  return response.json() as Promise<T>
-}
 
 const errorText = (failure: unknown): string => failure instanceof Error ? failure.message : String(failure)
 const isComposing = (event: KeyboardEvent): boolean =>
@@ -129,6 +110,7 @@ export function ChatPanel({ t }: { t: T }) {
   const [view, setView] = useState<ChatView>({ topics: [], messages: [], mode: 'session' })
   const [width, setWidth] = useState(readWidth)
   const [wechatOpen, setWechatOpen] = useState(false)
+  const [modelsOpen, setModelsOpen] = useState(false)
   const [draft, setDraft] = useState(() => stored(DRAFT_KEY) ?? '')
   const [tags, setTags] = useState<string[]>([])
   const [tagDraft, setTagDraft] = useState('')
@@ -526,7 +508,10 @@ export function ChatPanel({ t }: { t: T }) {
         </button>
         {view.topics.map(topicRow)}
       </nav>
-      <div className="chat-sidebar-foot"><WechatAccessButton t={t} onClick={() => setWechatOpen(true)} /></div>
+      <div className="chat-sidebar-foot">
+        <ModelSettingsButton t={t} onClick={() => setModelsOpen(true)} />
+        <WechatAccessButton t={t} onClick={() => setWechatOpen(true)} />
+      </div>
     </aside>
     <div className="chat-resizer" role="separator" aria-orientation="vertical" aria-label={t('resize')}
       aria-valuenow={width} aria-valuemin={MIN_WIDTH} aria-valuemax={MAX_WIDTH} tabIndex={0}
@@ -576,7 +561,7 @@ export function ChatPanel({ t }: { t: T }) {
               ? <p className="chat-hint">{untaggedView ? t('emptyUntagged') : selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
               : view.messages.map(message => {
                 const editingThis = editing !== undefined && editing.id === message.id
-                const rendered = message.role === 'agent' && !rawMessages[message.id]
+                const rendered = message.role === 'agent' && message.kind !== 'note' && !rawMessages[message.id]
                 return <article key={message.id} className="chat-message" data-role={message.role}
                   data-kind={message.kind || undefined} data-message-id={message.id}>
                   <div className="chat-bubble" data-markdown={rendered || undefined}>
@@ -595,7 +580,7 @@ export function ChatPanel({ t }: { t: T }) {
                           onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
                           title={t('openTopic')}>{name}</button>)}
                       </div>}
-                    {message.role === 'agent' && <button type="button" className="chat-message-raw"
+                    {message.role === 'agent' && message.kind !== 'note' && <button type="button" className="chat-message-raw"
                       aria-pressed={rawMessages[message.id] ? true : false}
                       title={rawMessages[message.id] ? t('showRenderedHint') : t('showRawHint')}
                       onClick={() => toggleRaw(message.id)}>
@@ -642,5 +627,6 @@ export function ChatPanel({ t }: { t: T }) {
       </div>
     </section>
     {wechatOpen && <WechatAccessDialog t={t} onClose={() => setWechatOpen(false)} />}
+    {modelsOpen && <ModelSettingsDialog t={t} onClose={() => setModelsOpen(false)} />}
   </div>
 }

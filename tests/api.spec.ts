@@ -13,10 +13,36 @@ describe('Super Chat HTTP API', () => {
   const store = new ChatStore(join(dir, 'chat.sqlite'))
   let server: Server
   let base = ''
-  const deliver = vi.fn<(message: import('../src/protocol.ts').ChatMessage, topics: import('../src/protocol.ts').Topic[]) => Promise<void>>(async () => {})
+  const deliver = vi.fn<(message: import('../src/protocol.ts').ChatMessage, topics: import('../src/protocol.ts').Topic[], options?: import('../src/transport.ts').DeliverOptions) => Promise<void>>(async () => {})
   const busy = vi.fn<(topicId?: string) => boolean>(() => false)
   const cancel = vi.fn<(topicId?: string) => Promise<boolean>>(async () => true)
-  const transport: ChatTransport = { mode: () => 'superagent', deliver, busy, cancel }
+  const mode = vi.fn<() => 'superagent' | 'session'>(() => 'superagent')
+  const roles = {
+    available: true,
+    default: { provider: 'mccodex', model: 'deepseek-v4.1-flash' },
+    orchestrator: { provider: 'mccodex', model: 'deepseek-v4.1-flash' },
+    worker: null,
+    groups: [{ id: 'mccodex', name: 'MCCODEX', models: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash' }] }],
+    failures: [],
+  }
+  const models = vi.fn(async () => roles)
+  const setModel = vi.fn(async (_role: import('../src/models.ts').ModelRole, model: import('../src/models.ts').RoleModel | null) => ({
+    ...roles, worker: model,
+  }))
+  const workerModel = vi.fn<(text: string) => Promise<{ model: import('../src/models.ts').RoleModel } | { error: string } | undefined>>(async () => undefined)
+  // The methods require the transport receiver, as the real router does; a bare function
+  // reference passed to the handler would lose `this` and must fail the test.
+  const transport: ChatTransport & { receiver?: true } = {
+    mode, deliver, busy, cancel, workerModel, receiver: true,
+    async models() {
+      if (!this.receiver) throw new Error('models called without the transport receiver')
+      return models()
+    },
+    async setModel(role, model) {
+      if (!this.receiver) throw new Error('setModel called without the transport receiver')
+      return setModel(role, model)
+    },
+  }
   const ensureBridge = vi.fn(async () => 'started')
   const tag = vi.fn(async () => ({ tagged: 2 }))
   const workspaceGroup = vi.fn<() => WorkspaceGroupInfo | undefined>(() => undefined)
@@ -64,6 +90,33 @@ describe('Super Chat HTTP API', () => {
   it('reports health and an empty general chat', async () => {
     expect(await (await call('/super-chat/api/health')).json()).toEqual({ ok: true, messages: 0, topics: 0 })
     expect(await (await call('/super-chat/api/chat')).json()).toMatchObject({ topics: [], messages: [], mode: 'superagent' })
+  })
+
+  it('serves model settings and saves one role model', async () => {
+    const read = await call('/super-chat/api/models')
+    expect(read.status).toBe(200)
+    expect(await read.json()).toEqual(roles)
+    const save = await call('/super-chat/api/models', {
+      method: 'POST',
+      body: JSON.stringify({ role: 'worker', model: { provider: 'mccodex', model: 'glm-5.3', reasoningEffort: 'high' } }),
+    })
+    expect(save.status).toBe(200)
+    expect(setModel).toHaveBeenCalledWith('worker', { provider: 'mccodex', model: 'glm-5.3', reasoningEffort: 'high' })
+    expect(await save.json()).toMatchObject({ worker: { provider: 'mccodex', model: 'glm-5.3' } })
+    const clear = await call('/super-chat/api/models', { method: 'POST', body: JSON.stringify({ role: 'orchestrator', model: null }) })
+    expect(clear.status).toBe(200)
+    expect(setModel).toHaveBeenLastCalledWith('orchestrator', null)
+  })
+
+  it('rejects malformed model saves and model settings without Superagent', async () => {
+    expect((await call('/super-chat/api/models', { method: 'POST', body: JSON.stringify({ role: 'nobody', model: null }) })).status).toBe(400)
+    expect((await call('/super-chat/api/models', {
+      method: 'POST', body: JSON.stringify({ role: 'worker', model: { provider: '', model: 'x' } }),
+    })).status).toBe(400)
+    mode.mockReturnValueOnce('session')
+    expect((await call('/super-chat/api/models', {
+      method: 'POST', body: JSON.stringify({ role: 'worker', model: null }),
+    })).status).toBe(409)
   })
 
   it('starts the WeChat bridge only when the panel asks', async () => {
@@ -239,5 +292,23 @@ describe('Super Chat HTTP API', () => {
     tag.mockRejectedValueOnce(new Error('Invalid downstream response from provider: model required retry'))
     const downstreamError = await call('/super-chat/api/chat/tag', { method: 'POST', body: '{}' })
     expect(downstreamError.status).toBe(500)
+  })
+
+  it('passes a worker-model directive to delivery and rejects an unknown model before storing', async () => {
+    const directive = { provider: 'mccodex', model: 'gemini-4' }
+    workerModel.mockResolvedValueOnce({ model: directive }).mockResolvedValueOnce({ error: 'Unknown model "nope".' })
+    const before = deliver.mock.calls.length
+    const ok = await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: '用 gemini4 模型启动一个新 worker 做 x', clientId: 'client-directive' }),
+    })
+    expect(ok.status).toBe(200)
+    expect(workerModel).toHaveBeenCalledWith('用 gemini4 模型启动一个新 worker 做 x')
+    expect(deliver.mock.calls[before]?.[2]).toEqual({ workerModel: directive })
+    const failed = await call('/super-chat/api/chat', {
+      method: 'POST', body: JSON.stringify({ text: '用 nope 模型启动一个新 worker 做 y', clientId: 'client-model-error' }),
+    })
+    expect(failed.status).toBe(400)
+    expect(await failed.json()).toMatchObject({ error: expect.stringContaining('Unknown model') })
+    expect(store.hasMessage('client-model-error')).toBe(false)
   })
 })

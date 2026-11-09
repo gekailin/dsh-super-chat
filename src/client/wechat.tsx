@@ -45,8 +45,8 @@ async function bridge<T>(path: string, init?: RequestInit): Promise<T> {
 const failureText = (t: T, failure: unknown): string =>
   failure instanceof TypeError ? t('chatWechatUnreachable') : failure instanceof Error ? failure.message : String(failure)
 
-/** Keep Tab inside the dialog while it is open. */
-function trapTab(event: globalThis.KeyboardEvent, container: HTMLElement): void {
+/** Keep Tab inside a dialog while it is open. */
+export function trapTab(event: globalThis.KeyboardEvent, container: HTMLElement): void {
   const focusable = [...container.querySelectorAll<HTMLElement>(
     'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
   )]

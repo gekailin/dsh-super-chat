@@ -69,6 +69,26 @@ export type SuperChatKey =
   | 'chatWechatStateConnected'
   | 'chatWechatStateLoggedOut'
   | 'chatWechatStateUnreachable'
+  | 'models'
+  | 'modelsTitle'
+  | 'modelsSubtitle'
+  | 'modelOrchestrator'
+  | 'modelOrchestratorHint'
+  | 'modelWorker'
+  | 'modelWorkerHint'
+  | 'modelProvider'
+  | 'modelName'
+  | 'modelChoose'
+  | 'modelInherit'
+  | 'modelEffort'
+  | 'modelEffortDefault'
+  | 'modelsDefault'
+  | 'modelsSaved'
+  | 'modelsUnavailable'
+  | 'modelsDirectiveHint'
+  | 'modelsFailures'
+  | 'modelsInvalid'
+  | 'listSeparator'
 
 export type T = Translate
 
@@ -140,6 +160,26 @@ export const en: Record<SuperChatKey, string> = {
   chatWechatStateConnected: 'Connected',
   chatWechatStateLoggedOut: 'Not connected',
   chatWechatStateUnreachable: 'Unavailable',
+  models: 'Models',
+  modelsTitle: 'Model settings',
+  modelsSubtitle: 'Choose the orchestrator model and the default model for new workers.',
+  modelOrchestrator: 'Orchestrator model',
+  modelOrchestratorHint: 'Used by the assessment and main Session; saving also switches the running orchestrator. Existing worker Sessions keep their model.',
+  modelWorker: 'Default worker model',
+  modelWorkerHint: 'Used by worker Sessions created after saving; already-running workers keep their model.',
+  modelProvider: 'Provider',
+  modelName: 'Model',
+  modelChoose: 'Choose a model',
+  modelInherit: 'Inherit default',
+  modelEffort: 'Reasoning',
+  modelEffortDefault: 'Provider default',
+  modelsDefault: 'Deployment default: {model}',
+  modelsSaved: 'Saved.',
+  modelsUnavailable: 'Superagent is unavailable, so model settings cannot be edited.',
+  modelsDirectiveHint: 'In chat, write “use <model> model to start a new worker for …” or “用<模型>模型启动一个新 worker 做…” to give that new worker the model. The model must appear in the list above.',
+  modelsFailures: 'Some providers could not be listed: {names}.',
+  modelsInvalid: 'Choose a model for every provider you selected.',
+  listSeparator: ', ',
 }
 
 export const zh: Record<SuperChatKey, string> = {
@@ -210,4 +250,24 @@ export const zh: Record<SuperChatKey, string> = {
   chatWechatStateConnected: '已连接',
   chatWechatStateLoggedOut: '未登录',
   chatWechatStateUnreachable: '不可用',
+  models: '模型',
+  modelsTitle: '模型设置',
+  modelsSubtitle: '选择 orchestrator 的模型，以及新 worker 的默认模型。',
+  modelOrchestrator: 'Orchestrator 模型',
+  modelOrchestratorHint: '用于研判和主 Session；保存后会立即切换当前 orchestrator。已运行的 worker Session 保持原模型。',
+  modelWorker: '默认 worker 模型',
+  modelWorkerHint: '只对保存后新建的 worker Session 生效；已在运行的 worker 保持原模型。',
+  modelProvider: '服务商',
+  modelName: '模型',
+  modelChoose: '选择模型',
+  modelInherit: '继承默认',
+  modelEffort: '推理档位',
+  modelEffortDefault: '服务商默认',
+  modelsDefault: '部署默认：{model}',
+  modelsSaved: '已保存。',
+  modelsUnavailable: 'Superagent 不可用，无法修改模型设置。',
+  modelsDirectiveHint: '在对话里写“用<模型>模型启动一个新 worker 做…”或“use <model> model to start a new worker for …”，该新 worker 会用指定模型；模型需在上面的列表里。',
+  modelsFailures: '部分服务商无法列出：{names}。',
+  modelsInvalid: '为已选择的服务商选好模型。',
+  listSeparator: '、',
 }
