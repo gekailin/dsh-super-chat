@@ -38,6 +38,8 @@
 .chat-message[data-role='user'] .chat-bubble { background: var(--dsw-alias-brand-primary); color: var(--dsw-static-neutral-bluish-00); border-bottom-right-radius: 4px; }
 .chat-message[data-role='agent'] .chat-bubble { background: var(--dsw-alias-bg-layer-2); border: 0.5px solid var(--dsw-alias-border-l2); border-bottom-left-radius: 4px; }
 .chat-bubble[data-markdown] { white-space: normal; }
+/* The raw toggle sits in the bubble's trailing corner, away from the topic tags below it. */
+.chat-bubble-actions { display: flex; justify-content: flex-end; margin-top: 6px; }
 .chat-markdown { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .chat-markdown > :first-child { margin-top: 0; }
 .chat-markdown > :last-child { margin-bottom: 0; }
@@ -56,7 +58,7 @@
 .chat-md-pre code { padding: 0; background: transparent; font: inherit; }
 .chat-markdown a { color: var(--dsw-alias-brand-primary); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .chat-markdown a:hover { text-decoration-thickness: 2px; }
-.chat-message-raw { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
+.chat-message-raw { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 0.5px solid var(--dsw-alias-border-l3); border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 11px; line-height: 18px; white-space: nowrap; cursor: pointer; }
 .chat-message-raw:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 .chat-message-raw[aria-pressed='true'] { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }
 .chat-message-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }

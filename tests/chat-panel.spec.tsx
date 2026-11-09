@@ -88,7 +88,7 @@ it('shows the general chat and topic views, and sends with the selected topic ta
   await act(async () => { rows().find(row => row.textContent?.includes('Design'))!.click() })
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(view.container.querySelector('.chat-title')?.textContent).toBe('Design')
-  expect(view.container.querySelector('.chat-message .chat-bubble')?.textContent).toBe('topic reply')
+  expect(view.container.querySelector('.chat-message .chat-bubble-text')?.textContent).toBe('topic reply')
   expect(view.calls.at(-1)?.url).toContain('?topic=tp-d')
 
   const textarea = view.container.querySelector('.chat-input') as HTMLTextAreaElement
@@ -126,7 +126,7 @@ it('shows All messages and a No topic view for untagged messages', async () => {
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 
   expect(view.container.querySelector('.chat-title')?.textContent).toBe(zh.untagged)
-  expect([...view.container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual(['untagged question'])
+  expect([...view.container.querySelectorAll('.chat-bubble-text')].map(node => node.textContent)).toEqual(['untagged question'])
   expect(view.calls.at(-1)?.url).not.toContain('?topic=')
   view.dispose()
 })
@@ -237,7 +237,7 @@ it('shows the untagged count and loads older messages when the list is scrolled 
   const untaggedRow = [...container.querySelectorAll<HTMLButtonElement>('.chat-topic-row')]
     .find(row => row.textContent?.includes(zh.untagged))!
   expect(untaggedRow.textContent).toContain('4')
-  expect([...container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual(['newest question', 'newest reply'])
+  expect([...container.querySelectorAll('.chat-bubble-text')].map(node => node.textContent)).toEqual(['newest question', 'newest reply'])
   expect(container.querySelector('.chat-older-hint')?.textContent).toBe(zh.olderHint)
 
   const messages = container.querySelector('.chat-messages')!
@@ -246,7 +246,7 @@ it('shows the untagged count and loads older messages when the list is scrolled 
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 
   expect(calls.some(url => url.includes('before=n3'))).toBe(true)
-  expect([...container.querySelectorAll('.chat-bubble')].map(node => node.textContent)).toEqual([
+  expect([...container.querySelectorAll('.chat-bubble-text')].map(node => node.textContent)).toEqual([
     'older question', 'older reply', 'newest question', 'newest reply',
   ])
   expect(container.querySelector('.chat-older-hint')).toBeNull()
@@ -266,12 +266,14 @@ it('renders agent Markdown and toggles a reply back to its raw text', async () =
   expect(message.querySelector('.chat-markdown a')?.getAttribute('href')).toBe('https://example.com')
 
   const toggle = message.querySelector<HTMLButtonElement>('.chat-message-raw')!
+  expect(toggle.parentElement?.closest('.chat-bubble')).toBe(message.querySelector('.chat-bubble'))
+  expect(toggle.closest('.chat-message-foot')).toBeNull()
   expect(toggle.textContent).toBe(zh.showRaw)
   expect(toggle.getAttribute('aria-pressed')).toBe('false')
   await act(async () => { toggle.click() })
 
   expect(message.querySelector('.chat-markdown')).toBeNull()
-  expect(message.querySelector('.chat-bubble')?.textContent).toBe(text)
+  expect(message.querySelector('.chat-bubble-text')?.textContent).toBe(text)
   const back = message.querySelector<HTMLButtonElement>('.chat-message-raw')!
   expect(back.textContent).toBe(zh.showRendered)
   expect(back.getAttribute('aria-pressed')).toBe('true')
@@ -287,7 +289,7 @@ it('leaves user text raw and offers no render toggle on it', async () => {
   ] })
   const message = view.container.querySelector('[data-message-id="m5"]')!
   expect(message.querySelector('.chat-markdown')).toBeNull()
-  expect(message.querySelector('.chat-bubble')?.textContent).toBe('**not rendered**')
+  expect(message.querySelector('.chat-bubble-text')?.textContent).toBe('**not rendered**')
   expect(message.querySelector('.chat-message-raw')).toBeNull()
   view.dispose()
 })

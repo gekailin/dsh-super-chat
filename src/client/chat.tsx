@@ -565,7 +565,15 @@ export function ChatPanel({ t }: { t: T }) {
                 return <article key={message.id} className="chat-message" data-role={message.role}
                   data-kind={message.kind || undefined} data-message-id={message.id}>
                   <div className="chat-bubble" data-markdown={rendered || undefined}>
-                    {rendered ? <Markdown text={message.text} /> : message.text}
+                    <div className="chat-bubble-text">{rendered ? <Markdown text={message.text} /> : message.text}</div>
+                    {message.role === 'agent' && message.kind !== 'note' && <div className="chat-bubble-actions">
+                      <button type="button" className="chat-message-raw"
+                        aria-pressed={rawMessages[message.id] ? true : false}
+                        title={rawMessages[message.id] ? t('showRenderedHint') : t('showRawHint')}
+                        onClick={() => toggleRaw(message.id)}>
+                        {rawMessages[message.id] ? t('showRendered') : t('showRaw')}
+                      </button>
+                    </div>}
                   </div>
                   <div className="chat-message-foot">
                     {editingThis && editing
@@ -580,12 +588,6 @@ export function ChatPanel({ t }: { t: T }) {
                           onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
                           title={t('openTopic')}>{name}</button>)}
                       </div>}
-                    {message.role === 'agent' && message.kind !== 'note' && <button type="button" className="chat-message-raw"
-                      aria-pressed={rawMessages[message.id] ? true : false}
-                      title={rawMessages[message.id] ? t('showRenderedHint') : t('showRawHint')}
-                      onClick={() => toggleRaw(message.id)}>
-                      {rawMessages[message.id] ? t('showRendered') : t('showRaw')}
-                    </button>}
                     {!editingThis && <button type="button" className="chat-message-edit" aria-label={t('editTags')} title={t('editTags')}
                       onClick={() => startEdit(message)}><Icon name="pencil" size={12} /></button>}
                     <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
