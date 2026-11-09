@@ -41,7 +41,6 @@
     "SECURITY.zh.md",
     "wechat",
     "docs/**/*.md",
-    "docs/screenshot.png",
     "docs/readme-hero.jpg"
   ],
   "scripts": {
