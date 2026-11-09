@@ -29,6 +29,7 @@
 - **主题是分发线索**：有标签的消息把第一个标签作为 `super-chat` 的 dispatch thread；通用聊天走 `general`，由 Superagent 自己判断。标签不强制决定结果。
 - **自动打标签**：全部消息视图右上角用 profile 默认模型给未打标签的消息套用已有主题；只补空标签，agent 回复继承标签，不创建新主题。
 - **手动标签编辑**：每条消息的标签行可以逐条增删标签并保存；只改这一条消息，可新建主题，不触发分发。
+- **Markdown 回复**：agent 回复支持常见 Markdown 渲染（标题、列表、引用、链接、围栏代码和行内代码），每条回复都有「原文」按钮可切回原始文本；用户消息保持原文。
 - **Superagent 工单**：确认、回答和结果会带标签回到聊天流；没有 GitHub 仓库或 CLI 的 chat-only prototype 也能接单。
 - **工作区分组**：装了 prototype 时，把 orchestrator 与各工单 worker 的 Workspace 合并显示为一个 “Superagent” 分组，orchestrator 置顶；只在浏览器侧合并展示，不改变 Session 的工作目录。
 - **SQLite**：消息、主题和消息-主题关系用表存储，并建立索引；旧的 `chat.json` 会一次性迁移。
