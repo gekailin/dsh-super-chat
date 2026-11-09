@@ -2,7 +2,7 @@
 
 本文说明单流聊天、主题标签、SQLite 存储、superagent 分发、工作区分组、浏览器/宿主拆分、HTTP 契约，以及两个窄补丁。
 
-[简体中文](architecture.zh.md) | [English](architecture.md)
+[English](architecture.md) | 简体中文
 
 ## 组件
 

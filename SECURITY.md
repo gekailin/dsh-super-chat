@@ -1,6 +1,6 @@
 # Security
 
-[简体中文](SECURITY.zh.md) | English
+English | [简体中文](SECURITY.zh.md)
 
 This plugin runs an HTTP route on the DSH Web server and gives an agent Session
 access to a workspace. Treat it accordingly.

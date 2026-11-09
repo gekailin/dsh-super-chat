@@ -1,8 +1,8 @@
 # dsh-super-chat
 
-面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Super Chat 面板：一个通用聊天流，消息可以带多个主题标签；安装 `dsh-superagent-prototype` 时，主题作为任务分发的线索，未打标的消息交给 Superagent 自行判断。
+面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Super Chat 面板：核心是为 `dsh-superagent-prototype` 提供 `super-chat` Source，把聊天消息变成 Superagent 工单。面板保留一条通用聊天流，消息可以带多个主题标签；主题是任务分发的线索，未打标的消息交给 Superagent 自行判断。没有这个 prototype 时，插件退回单个通用 DSH Session。
 
-[简体中文](README.zh.md) | [English](README.md)
+[English](README.md) | 简体中文
 
 ![Super Chat：面向 DeepSeek Harness 的通用聊天面板](docs/readme-hero.jpg)
 

@@ -2,7 +2,7 @@
 
 A Super Chat plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): its core is a `super-chat` Source for the `dsh-superagent-prototype` bundle, with one tagged chat stream, a loopback API and SQLite storage.
 
-[简体中文](AGENTS.zh.md) | English
+English | [简体中文](AGENTS.zh.md)
 
 ## Background
 
