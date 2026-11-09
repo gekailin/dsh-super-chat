@@ -31,6 +31,10 @@ export type SuperChatKey =
   | 'removeTopic'
   | 'editTags'
   | 'removeTag'
+  | 'showRaw'
+  | 'showRawHint'
+  | 'showRendered'
+  | 'showRenderedHint'
   | 'save'
   | 'cancel'
   | 'tagPlaceholder'
@@ -98,6 +102,10 @@ export const en: Record<SuperChatKey, string> = {
   removeTopic: 'Remove topic',
   editTags: 'Edit tags',
   removeTag: 'Remove tag',
+  showRaw: 'Raw',
+  showRawHint: 'Show the original message text',
+  showRendered: 'Rendered',
+  showRenderedHint: 'Show the Markdown rendering',
   save: 'Save',
   cancel: 'Cancel',
   tagPlaceholder: 'Add a topic…',
@@ -164,6 +172,10 @@ export const zh: Record<SuperChatKey, string> = {
   removeTopic: '移除主题',
   editTags: '编辑标签',
   removeTag: '移除标签',
+  showRaw: '原文',
+  showRawHint: '显示消息的原始文本',
+  showRendered: '渲染',
+  showRenderedHint: '显示 Markdown 渲染结果',
   save: '保存',
   cancel: '取消',
   tagPlaceholder: '添加主题…',

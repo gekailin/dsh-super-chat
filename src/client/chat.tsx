@@ -4,6 +4,7 @@ import { sameTopicName, type ChatMessage, type ChatView, type Topic } from '../p
 import type { T } from './locales.ts'
 import { when } from './text.ts'
 import { mergeTagNames, messageTagNames, parseTagInput, splitTags } from './topics.ts'
+import { Markdown } from './markdown.tsx'
 import { WechatAccessButton, WechatAccessDialog } from './wechat.tsx'
 import STYLES from './chat.css?raw'
 
@@ -142,6 +143,7 @@ export function ChatPanel({ t }: { t: T }) {
   const [cancelling, setCancelling] = useState(false)
   const [editing, setEditing] = useState<{ id: string; tags: string[]; draft: string }>()
   const [savingTags, setSavingTags] = useState(false)
+  const [rawMessages, setRawMessages] = useState<Record<string, boolean>>({})
   const drag = useRef<{ x: number; width: number }>()
   const list = useRef<HTMLDivElement>(null)
   const latest = useRef(0)
@@ -285,6 +287,7 @@ export function ChatPanel({ t }: { t: T }) {
     setError(undefined)
     setTagNote(undefined)
     setEditing(undefined)
+    setRawMessages({})
     setTags([])
     setTagDraft('')
     setNewTopic(undefined)
@@ -474,6 +477,14 @@ export function ChatPanel({ t }: { t: T }) {
       setOffline(false)
     } catch (failure) { if (topicRef.current === viewAtStart) setError(errorText(failure)) } finally { setCancelling(false) }
   }
+  const toggleRaw = (id: string) => {
+    setRawMessages(previous => {
+      const next = { ...previous }
+      if (next[id]) delete next[id]
+      else next[id] = true
+      return next
+    })
+  }
   const sendKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposing(event)) return
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() }
@@ -565,9 +576,12 @@ export function ChatPanel({ t }: { t: T }) {
               ? <p className="chat-hint">{untaggedView ? t('emptyUntagged') : selectedTopic ? t('emptyTopic') : t('emptyGeneral')}</p>
               : view.messages.map(message => {
                 const editingThis = editing !== undefined && editing.id === message.id
+                const rendered = message.role === 'agent' && !rawMessages[message.id]
                 return <article key={message.id} className="chat-message" data-role={message.role}
                   data-kind={message.kind || undefined} data-message-id={message.id}>
-                  <div className="chat-bubble">{message.text}</div>
+                  <div className="chat-bubble" data-markdown={rendered || undefined}>
+                    {rendered ? <Markdown text={message.text} /> : message.text}
+                  </div>
                   <div className="chat-message-foot">
                     {editingThis && editing
                       ? <div className="chat-message-tags">
@@ -581,6 +595,12 @@ export function ChatPanel({ t }: { t: T }) {
                           onClick={() => { const topic = view.topics.find(item => sameTopicName(item.name, name)); if (topic) selectTopic(topic.id) }}
                           title={t('openTopic')}>{name}</button>)}
                       </div>}
+                    {message.role === 'agent' && <button type="button" className="chat-message-raw"
+                      aria-pressed={rawMessages[message.id] ? true : false}
+                      title={rawMessages[message.id] ? t('showRenderedHint') : t('showRawHint')}
+                      onClick={() => toggleRaw(message.id)}>
+                      {rawMessages[message.id] ? t('showRendered') : t('showRaw')}
+                    </button>}
                     {!editingThis && <button type="button" className="chat-message-edit" aria-label={t('editTags')} title={t('editTags')}
                       onClick={() => startEdit(message)}><Icon name="pencil" size={12} /></button>}
                     <span className="chat-meta">{message.role === 'user' ? t('you') : t('agent')} · {when(message.at, t('lang'))}</span>
