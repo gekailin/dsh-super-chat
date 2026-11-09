@@ -1,6 +1,6 @@
 # 更新日志
 
-[简体中文](CHANGELOG.zh.md) | [English](CHANGELOG.md)
+[English](CHANGELOG.md) | 简体中文
 
 ## 0.2.0
 

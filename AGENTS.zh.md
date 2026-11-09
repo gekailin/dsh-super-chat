@@ -2,7 +2,7 @@
 
 面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 Super Chat 插件：核心是为 `dsh-superagent-prototype` 提供 `super-chat` Source，并实现单流聊天、主题标签、loopback API 和 SQLite 存储。
 
-[简体中文](AGENTS.zh.md) | [English](AGENTS.md)
+[English](AGENTS.md) | 简体中文
 
 ## 背景
 

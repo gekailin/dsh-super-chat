@@ -1,6 +1,6 @@
 # 安全
 
-[简体中文](SECURITY.zh.md) | [English](SECURITY.md)
+[English](SECURITY.md) | 简体中文
 
 本插件在 DSH Web server 上运行一个 HTTP 路由，并让一个 agent Session 访问 workspace。请据此评估风险。
 

@@ -2,7 +2,7 @@
 
 The plugin's built-in WeChat bridge, started on demand, connecting WeChat's **File Transfer Helper** web page (`filehelper.weixin.qq.com`) to the Super Chat plugin's single stream. It defaults to the **general chat**; `@topic` tokens in a message become topic tags, and several tokens produce several tags.
 
-[简体中文](README.zh.md) | English
+English | [简体中文](README.zh.md)
 
 The module is a separate Node.js process on purpose: it holds the WeChat login credentials while the DSH profile restarts when its plugins or settings change. **Opening the panel's WeChat access starts it on demand**; while saved credentials exist, the host also automatically resumes and keeps the bridge alive across restarts and background checks; an already-running external bridge is reused. Restarting DSH therefore does not require a new scan. The process talks to the plugin's chat API over loopback only.
 

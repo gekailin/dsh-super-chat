@@ -1,6 +1,6 @@
 # Changelog
 
-[简体中文](CHANGELOG.zh.md) | English
+English | [简体中文](CHANGELOG.zh.md)
 
 ## 0.2.0
 

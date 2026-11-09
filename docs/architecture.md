@@ -2,7 +2,7 @@
 
 This document describes the single chat stream, topic tags, SQLite storage, superagent dispatch, workspace grouping, the host/browser split, the HTTP contract, and the two narrow patches.
 
-[简体中文](architecture.zh.md) | English
+English | [简体中文](architecture.zh.md)
 
 ## Components
 

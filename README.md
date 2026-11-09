@@ -1,8 +1,8 @@
 # dsh-super-chat
 
-A Super Chat panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): one general chat stream where messages can carry several topic tags. With `dsh-superagent-prototype` installed, topics act as task-dispatch cues and untagged messages are left for Superagent to decide.
+A Super Chat panel for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): its core is a `super-chat` Source for the `dsh-superagent-prototype` bundle, turning chat messages into Superagent Tickets. The panel keeps one general chat stream where messages can carry several topic tags; topics act as task-dispatch cues and untagged messages are left for Superagent to decide. Without that prototype, the plugin falls back to a single general DSH Session.
 
-[简体中文](README.zh.md) | English
+English | [简体中文](README.zh.md)
 
 ![Super Chat: a general chat panel for DeepSeek Harness](docs/readme-hero.jpg)
 
