@@ -30,6 +30,7 @@
 - **自动打标签**：全部消息视图右上角用 profile 默认模型给未打标签的消息套用已有主题；只补空标签，agent 回复继承标签，不创建新主题。
 - **手动标签编辑**：每条消息的标签行可以逐条增删标签并保存；只改这一条消息，可新建主题，不触发分发。
 - **Markdown 回复**：agent 回复支持常见 Markdown 渲染（标题、列表、引用、链接、围栏代码和行内代码），每条回复都有「原文」按钮可切回原始文本；用户消息保持原文。
+- **模型设置**：侧栏的「模型」入口从 profile 的模型目录里选择 orchestrator 模型和新 worker 的默认模型。在对话里写 `用 gemini-4-argon 模型启动一个新 worker 做…` 或 `use gemini-4-argon model to start a new worker for…`，可以只让这个新 worker 用指定模型，不改变默认值。
 - **Superagent 工单**：确认、回答和结果会带标签回到聊天流；没有 GitHub 仓库或 CLI 的 chat-only prototype 也能接单。
 - **工作区分组**：装了 prototype 时，把 orchestrator 与各工单 worker 的 Workspace 合并显示为一个 “Superagent” 分组，orchestrator 置顶；只在浏览器侧合并展示，不改变 Session 的工作目录。
 - **SQLite**：消息、主题和消息-主题关系用表存储，并建立索引；旧的 `chat.json` 会一次性迁移。
@@ -116,6 +117,8 @@ dsh plugin --profile web add "$PWD"
 - **无标签**：走 `super-chat:general`；通用聊天完全交给 Superagent 判断。
 - **chat-only**：prototype 的 setup 通常要求 GitHub 仓库和已登录的 `gh` CLI。GitHub 两项都为空时，插件在内存中包装 prototype 的 `Setup` 类，让它接受空部署，然后请 prototype 重启；不修改任何 prototype 文件。这种模式下 worker 没有 GitHub 工具。该兼容路径只覆盖聊天 Source；如果还要使用 Feishu，仍按 prototype 的要求配置 GitHub，让原始 setup 处理 Feishu。
 - **工作区分组**：prototype 的每张工单会在自己的目录下创建一个 Workspace。插件为 prototype 的 state 目录保留一个 “Superagent” Workspace，并在浏览器侧把工单 Workspace 折进该分组；orchestrator Session 置顶。`docs/architecture.zh.md` 记录了工作原理和边界。
+- **模型**：「模型」对话框通过 prototype 的公开 settings API 读取并写回 `eval.model` 和 `executor.model`，沿用 prototype 的校验和保存历史。保存 orchestrator 模型时还会给当前 orchestrator Session 追加一条模型选择，下一次请求生效；worker 模型只对之后新建的 worker Session 生效。
+- **单个 worker 的模型**：消息要求用指定模型启动新 worker 时，插件先在存储消息前用模型目录解析名称。工单被接受后记住这个选择，并在 DSH 创建 `worker-<工单 id>` Session 时、prototype 注入默认模型之前追加模型选择；应用成功后聊天里会出现一条短提示。名称未知或有歧义会报错，消息不会发出。
 - **回退**：服务不存在、未配置或补丁失效时，改用 `GeneralSession`，所有消息进入一个通用 DSH Session，主题标签只作为提示。
 
 ## 权限与审批
@@ -146,7 +149,7 @@ SUPERCHAT_URL=http://127.0.0.1:3082 ./run-superchat.sh
 
 - 聊天保存在 `stateDir` 的 `chat.sqlite`，本插件不会上传它。消息会像普通 DSH Session 一样发送给 profile 配置的模型提供方；不要把密钥贴进聊天。
 - HTTP API 与 DSH Web UI 同源，要求 `x-super-chat-request: 1` 请求头、匹配的 `Host`，并拒绝外来 `Origin`。这是 CSRF 防护，不是身份认证；真正的认证由 DSH Web server 负责。除非清楚网络暴露面，否则让服务保持 loopback。
-- Superagent 工单使用 prototype 的执行环境和权限；本插件只写 SQLite、注册一个 HTTP 路由并读取 Session 事件。
+- Superagent 工单使用 prototype 的执行环境和权限；本插件写 SQLite、注册 `/super-chat` HTTP 路由、读取 Session 事件，并在用户明确保存模型或发出带模型的起 worker 指令时写入角色模型或追加模型选择。
 - 没有埋点、遥测、远程字体或外部资源。
 
 ## 已知限制
@@ -157,6 +160,7 @@ SUPERCHAT_URL=http://127.0.0.1:3082 ./run-superchat.sh
 - 主题是标签和分发线索，不是严格分区；第一条标签决定 dispatch thread，Superagent 仍可自行重新判断。
 - 兜底 Session 只有一条；此时所有消息共用一个模型上下文，带标签的回复会继承当前回合用户消息的标签，同时出现在全部消息和对应主题视图里。
 - 插件不自带工单流水线或 worker 池；这些来自 `dsh-superagent-prototype`。
+- 模型设置依赖 prototype；没有它时对话框会说明 Superagent 不可用。对话指令只影响新创建的 worker Session——加入已有工单的消息会保留该 worker 的模型——名称必须是模型目录里的 id 或显示名（裸 id 有歧义时用 `provider/model`）。待应用的指令 30 分钟后失效。
 - 多用户能力仅限于 DSH Web server 本身已有的能力。
 - 面板使用绝对的 `/super-chat/api` 路径并校验监听 host；不支持路径前缀或不同公开 authority 的反向代理。
 
@@ -173,7 +177,7 @@ cd wechat && npm test
 
 本地验证：把 checkout 安装进一个一次性 profile，用空闲端口启动，并把 `stateDir` 指到一次性目录。
 
-目录：`src/index.ts`（宿主入口）、`src/store.ts`（SQLite）、`src/session.ts`（兜底 Session）、`src/transport.ts`（transport 选择）、`src/superagent.ts`（super-chat Source 与 chat-only 补丁）、`src/tagger.ts`（自动打标签）、`src/wechat-bridge.ts`（微信桥生命周期）、`src/workspace-group.ts` 与 `src/workspace-group-host.ts`（Superagent 工作区分组）、`src/api.ts`（HTTP API）、`src/monkey.ts`（列表 patch）、`src/protocol.ts`（共享类型）、`src/client/`（浏览器半边）。
+目录：`src/index.ts`（宿主入口）、`src/store.ts`（SQLite）、`src/session.ts`（兜底 Session）、`src/transport.ts`（transport 选择）、`src/superagent.ts`（super-chat Source、模型设置与 chat-only 补丁）、`src/models.ts`（角色模型、目录解析与 worker 模型指令）、`src/tagger.ts`（自动打标签）、`src/wechat-bridge.ts`（微信桥生命周期）、`src/workspace-group.ts` 与 `src/workspace-group-host.ts`（Superagent 工作区分组）、`src/api.ts`（HTTP API）、`src/monkey.ts`（列表 patch）、`src/protocol.ts`（共享类型）、`src/client/`（浏览器半边）。
 
 ## 许可
 

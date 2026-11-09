@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the single chat stream, topic tags, SQLite storage, superagent dispatch, workspace grouping, the host/browser split, the HTTP contract, and the two narrow patches.
+This document describes the single chat stream, topic tags, SQLite storage, superagent dispatch, model settings, workspace grouping, the host/browser split, the HTTP contract, and the two narrow patches.
 
 English | [简体中文](architecture.zh.md)
 
@@ -12,7 +12,8 @@ English | [简体中文](architecture.zh.md)
 | `src/store.ts` | host | `chat.sqlite`: messages, topics, message-topic links, indexes, one-time legacy `chat.json` migration, and manual replacement of one message's tags. |
 | `src/session.ts` | host | The single fallback DSH Session (`super-chat-general`) used when superagent is unavailable. |
 | `src/transport.ts` | host | `ChatTransportRouter`: chooses superagent or the fallback Session per operation. |
-| `src/superagent.ts` | host | The core `super-chat` Source, topic dispatch, Channel/Thread context, and the memory-only chat-only Setup patch. |
+| `src/superagent.ts` | host | The core `super-chat` Source, topic dispatch, Channel/Thread context, role-model settings, the per-worker model directive, and the memory-only chat-only Setup patch. |
+| `src/models.ts` | both | Role-model shapes, the catalog view, the worker-model directive parser and reference resolution shared by the host and the dialog. |
 | `src/tagger.ts` | host | On-demand topic judgement for existing messages through the profile default model; only empty tags are filled, and agent replies inherit them. |
 | `src/wechat-bridge.ts` | host | WeChat bridge lifecycle and keep-alive: starts on demand before sign-in, and automatically resumes and monitors the bridge while saved credentials exist; reuses an external bridge and stops only the child it started. |
 | `src/api.ts` | host | `/super-chat/api/*`: validation, same-origin guard, topic resolution and message storage. |
@@ -23,6 +24,8 @@ English | [简体中文](architecture.zh.md)
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
 | `src/client/workspace-group.ts` | browser | Wraps the Workspace snapshot to fold ticket Workspaces into the Superagent group. |
 | `src/client/chat.tsx` | browser | Newest-page paging with scroll-up for older pages, the `<No topic>` view, tag input, new topics, per-message tag editing, stop and polling. |
+| `src/client/api.ts` | browser | Same-origin request helper (`x-super-chat-request`, JSON body, typed errors) used by every panel request. |
+| `src/client/models.tsx` | browser | The Models entry and dialog: orchestrator and default-worker selectors backed by the catalog and role settings. |
 | `src/client/markdown.tsx` | browser | Safe Markdown-to-React rendering for agent replies; the parser covers common chat syntax and never interprets authored HTML. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
 | `src/client/text.ts` | browser | Relative and short-date timestamp formatting for message metadata. |
@@ -93,6 +96,16 @@ ChatTransportRouter
 - Thread context reads the dispatch topic's messages; an untagged Trigger reads the general stream.
 - Topics are cues, not hard partitions: Superagent can still decide otherwise or route the work to another Ticket.
 
+### Models
+
+The **Models** dialog reads the profile catalog through `sessionController.modelCatalog()` and the prototype's current roles through `store.settings()` (`eval.model` and `executor.model`). A save sends the complete block from the current settings plus the chosen `model` to `settings.save(block, value, blockRevision(block), 'panel')`; the prototype validates the route and keeps its own history, and the plugin retries once when a concurrent save changed the block revision. A null role saves `model: null`, which inherits the deployment default.
+
+Saving the orchestrator role also appends a `model/selection` session event to the live orchestrator Session (`agent.id === orchestrator.masterId`), so the switch takes effect on that Session's next request and persists; later orchestrator Sessions read the saved `eval.model`. Saving the worker role changes only `executor.model`, which the prototype reads when it creates the next worker Session; a running worker keeps its model.
+
+A chat message may carry a worker-model directive, in Chinese (`用 gemini-4-argon 模型启动一个新 worker 做…`) or English (`use gemini-4-argon model to start a new worker for…`). `src/models.ts` recognizes the phrase only when the message also asks to start or run a worker; the model reference may be a `provider/model`, an exact model id or an exact display name, with an optional `@effort` suffix. `POST /chat` resolves it before storing the message, so an unknown or ambiguous reference returns 400 without creating work. The resolved route is attached to the delivery and remembered under the message's Trigger id for at most 30 minutes (bounded to 50 entries).
+
+The prototype creates a worker Session as `worker-<ticket id>` (documented in its `003-execution.md`) and seeds `executor.model` in `Sessions.ensure` after `sessionController.create` resolves. The plugin listens to DSH's public `agent/created` event: while the Ticket that owns the new Session has a pending directive, it appends the directive's `model/selection` before the prototype's seed runs. DSH's live selection cache does not observe an event appended by another plugin, so the plugin also injects the selection into prompt assembly and the request for that one request (the same public waterfall the prototype uses for its own role model), clearing it at the request header. The worker's first request therefore uses the chosen model, and later requests follow the recorded header. The orchestrator switch uses the same one-request injection, so it takes effect on the next request. A listener failure is logged and never fails Session creation. A Session that already made a request is left alone; when the selection is applied, the chat gains a short `note` message in the user message's topics. The directive affects only a newly created worker Session: a message that joins an existing Ticket keeps that worker's model.
+
 ### Fallback Session
 
 - Exactly one Session: `super-chat-general`.
@@ -123,6 +136,8 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 | --- | --- | --- | --- |
 | GET | `/super-chat/api/health` | — | `{ ok, messages, topics }` |
 | GET | `/super-chat/api/workspace-group` | — | `{ group: { root, workRoot, workspaceId, title, orchestratorSessionId? } \| null }` |
+| GET | `/super-chat/api/models` | — | `{ available, error?, default?, orchestrator, worker, groups, failures }` |
+| POST | `/super-chat/api/models` | `{ role: 'orchestrator' \| 'worker', model: { provider, model, reasoningEffort? } \| null }` | the same model view after the save |
 | GET | `/super-chat/api/chat?topic=<id>&before=<id>&limit=<n>` | — | `{ topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | GET | `/super-chat/api/chat?untagged=1&before=<id>&limit=<n>` | — | `{ topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
 | POST | `/super-chat/api/chat` | `{ text, tags?, topic?, clientId?, via? }` | `{ result, topic?, topics, messages, olderCursor?, hasOlder?, untaggedCount, mode, busy? }` |
@@ -142,6 +157,8 @@ All requests require `x-super-chat-request: 1`; `Host` must match the listening 
 - `chat/tag` fills existing topics only on untagged messages; `tagged` counts the messages that gained tags, including replies that inherited them.
 - `chat/tags` replaces one existing message's tags with the submitted set; names resolve and create missing topics, and an empty array clears the tags.
 - `mode` is `superagent` or `session`; `busy` means the selected view has an open Ticket or a running fallback turn.
+- `models` reads the profile catalog and the prototype's role settings; with Superagent unavailable it returns `available: false` instead of failing. A save validates `role`, requires an explicit `model` object or `null`, and answers 409 when the transport is not in superagent mode; a prototype validation failure keeps its own message.
+- `POST /chat` resolves a worker-model directive before storing the message. An unknown or ambiguous model returns 400 and stores nothing; `tags` and deduplication behave as usual otherwise.
 
 ## WeChat bridge
 
@@ -196,5 +213,6 @@ SQLite writes run synchronously on the Node event loop; one profile has one plug
 ## Compatibility
 
 - `dsh-superagent-prototype` setup normally requires GitHub. When both GitHub fields are empty, the plugin wraps its `Setup` class in memory so `run` returns an empty deployment, then asks the prototype to restart. No prototype file is modified. This compatibility path covers the chat Source only; Feishu still needs GitHub configured as the prototype expects. If `Setup.run` changes shape, the patch stops applying and chat falls back to the general Session.
-- Source registration, Policy seeding and the Channel use only the prototype's public shape; no prototype internals are imported.
+- Source registration, Policy seeding, the Channel and the role-model settings use only the prototype's public shape; no prototype internals are imported.
+- The worker-model directive depends on public DSH and prototype facts: DSH emits `agent/created` before the Session's first request, the `system-prompt/assemble` and `agent/request` waterfalls carry an injected selection, and the prototype names a worker Session `worker-<ticket id>` and seeds `executor.model` in `Sessions.ensure` after creation. If these change, the directive stops applying (workers keep the configured default) while everything else keeps working.
 - An old `chat.json` is imported once; the topic/tag structure is described by the SQLite schema and this document.
