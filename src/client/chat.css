@@ -84,6 +84,8 @@ button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color
 .chat-input { box-sizing: border-box; width: 100%; min-height: 64px; max-height: 220px; resize: vertical; padding: 10px 12px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: 12px; background: var(--dsw-alias-bg-layer-1, transparent); color: var(--dsw-alias-label-primary); font: inherit; font-size: 14px; line-height: 22px; }
 .chat-input:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
 .chat-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-composer-hint { flex: 1; min-width: 0; }
+.chat-composer-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .chat-button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: 8px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; cursor: pointer; }
 .chat-button:hover { background: var(--dsw-alias-interactive-bg-hover); }
 .chat-button:disabled { opacity: .5; cursor: default; }
@@ -98,6 +100,12 @@ button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color
   .chat-message { max-width: 92%; }
   /* The header keeps the action reachable as an icon-only control in a narrow panel. */
   .chat-auto-tag-label { display: none; }
+}
+@container (max-width: 480px) {
+  /* Keep the composer actions on one row at phone width; the icon keeps its title and label. */
+  .chat-models-entry-label { display: none; }
+  .chat-composer-hint { display: none; }
+  .chat-composer-actions .chat-button { padding: 0 8px; }
 }
 /* The WeChat access entry sits at the bottom of the topic list. */
 .chat-sidebar-foot { flex: none; padding-top: 6px; border-top: 0.5px solid var(--dsw-alias-border-l3); }
@@ -136,12 +144,9 @@ button.chat-tag:hover { background: var(--dsw-alias-interactive-bg-hover); color
 .chat-wechat-name { overflow: hidden; font-size: 14px; line-height: 20px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .chat-wechat-state-text { display: inline-flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
 .chat-wechat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary); }
-/* Model settings entry shares the sidebar foot with WeChat access. */
-.chat-models-entry { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; line-height: 20px; text-align: left; cursor: pointer; }
-.chat-models-entry:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
-.chat-models-entry:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 0; }
+/* The Models entry sits in the composer immediately left of Send. */
+.chat-models-entry { flex: none; }
 .chat-models-entry-icon { display: inline-flex; flex: none; }
-.chat-models-entry-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The model window reuses the WeChat window's modal geometry with its own field layout. */
 .chat-models-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .chat-models-mask { position: absolute; inset: 0; background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, .45)); backdrop-filter: var(--dsw-mask-blur, blur(2px)); }

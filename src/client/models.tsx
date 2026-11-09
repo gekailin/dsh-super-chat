@@ -32,7 +32,8 @@ function ModelIcon({ size = 15 }: { size?: number }) {
 }
 
 export function ModelSettingsButton({ t, onClick }: { t: T; onClick: () => void }) {
-  return <button type="button" className="chat-models-entry" onClick={onClick} title={t('modelsTitle')}>
+  return <button type="button" className="chat-button chat-models-entry" onClick={onClick}
+    title={t('modelsTitle')} aria-label={t('modelsTitle')}>
     <span className="chat-models-entry-icon"><ModelIcon /></span>
     <span className="chat-models-entry-label">{t('models')}</span>
   </button>

@@ -294,7 +294,7 @@ it('leaves user text raw and offers no render toggle on it', async () => {
   view.dispose()
 })
 
-it('opens model settings from the sidebar and saves the orchestrator model', async () => {
+it('opens model settings from the composer, immediately left of Send', async () => {
   Element.prototype.scrollIntoView = vi.fn()
   const modelView = {
     available: true,
@@ -327,7 +327,14 @@ it('opens model settings from the sidebar and saves the orchestrator model', asy
   await act(async () => { root.render(<ChatPanel t={t} />) })
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
 
-  await act(async () => { (container.querySelector('.chat-models-entry') as HTMLButtonElement).click() })
+  const entry = container.querySelector<HTMLButtonElement>('.chat-models-entry')!
+  const actions = entry.parentElement!
+  expect(actions.className).toBe('chat-composer-actions')
+  expect(entry.nextElementSibling?.matches('button.chat-primary')).toBe(true)
+  expect(container.querySelector('.chat-sidebar-foot .chat-models-entry')).toBeNull()
+  expect(entry.getAttribute('title')).toBe(zh.modelsTitle)
+
+  await act(async () => { entry.click() })
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
   const dialog = document.querySelector<HTMLElement>('.chat-models-window')!
   expect(dialog.textContent).toContain(zh.modelsTitle)

@@ -25,7 +25,7 @@
 | `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
 | `src/client/chat.tsx` | browser | 最新一页优先、上滚加载更早分页、`<无主题>` 视图、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
 | `src/client/api.ts` | browser | 同源请求辅助（`x-super-chat-request`、JSON body、类型化错误），所有面板请求共用。 |
-| `src/client/models.tsx` | browser | 「模型」入口与对话框：基于模型目录和角色设置选择 orchestrator 与默认 worker 模型。 |
+| `src/client/models.tsx` | browser | 输入框底部的「模型」入口与对话框：基于模型目录和角色设置选择 orchestrator 与默认 worker 模型。 |
 | `src/client/markdown.tsx` | browser | agent 回复的安全 Markdown 到 React 渲染；覆盖常见聊天语法，不解析用户写入的 HTML。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/text.ts` | browser | 消息元数据的相对时间与简短日期格式化。 |

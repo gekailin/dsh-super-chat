@@ -509,7 +509,6 @@ export function ChatPanel({ t }: { t: T }) {
         {view.topics.map(topicRow)}
       </nav>
       <div className="chat-sidebar-foot">
-        <ModelSettingsButton t={t} onClick={() => setModelsOpen(true)} />
         <WechatAccessButton t={t} onClick={() => setWechatOpen(true)} />
       </div>
     </aside>
@@ -623,8 +622,11 @@ export function ChatPanel({ t }: { t: T }) {
           </div>
           <textarea className="chat-input" value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={sendKey}
             placeholder={t('placeholder')} aria-label={t('placeholder')} rows={3} disabled={sending} />
-          <div className="chat-composer-foot"><span className="chat-hint">{t('sendHint')}</span>
-            <button type="submit" className="chat-button chat-primary" disabled={!draft.trim() || sending}><Icon name="send" /> {t('send')}</button></div>
+          <div className="chat-composer-foot"><span className="chat-hint chat-composer-hint">{t('sendHint')}</span>
+            <div className="chat-composer-actions">
+              <ModelSettingsButton t={t} onClick={() => setModelsOpen(true)} />
+              <button type="submit" className="chat-button chat-primary" disabled={!draft.trim() || sending}><Icon name="send" /> {t('send')}</button>
+            </div></div>
         </form>
       </div>
     </section>
