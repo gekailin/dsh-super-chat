@@ -2,6 +2,10 @@
 
 [简体中文](CHANGELOG.zh.md) | English
 
+## Unreleased
+
+- Agent replies render common Markdown (headings, lists, quotes, links, fenced and inline code); each reply has a **Raw** button to switch back to the original text, and user messages stay as authored.
+
 ## 0.2.0
 
 - The panel opens on the newest messages and fetches older pages when you scroll up, instead of replaying the whole stream from the top. Polling keeps the loaded pages and the reader's position.

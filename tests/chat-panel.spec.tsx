@@ -253,3 +253,41 @@ it('shows the untagged count and loads older messages when the list is scrolled 
   act(() => root.unmount())
   container.remove()
 })
+
+it('renders agent Markdown and toggles a reply back to its raw text', async () => {
+  const text = '**bold** and `code`\n\n```ts\nconst x = 1\n```\n\n[details](https://example.com)'
+  const view = await render({ ...general, messages: [
+    ...general.messages,
+    { id: 'm4', role: 'agent', text, at, tags: [] },
+  ] })
+  const message = view.container.querySelector('[data-message-id="m4"]')!
+  expect(message.querySelector('.chat-markdown strong')?.textContent).toBe('bold')
+  expect(message.querySelector('.chat-md-pre code')?.textContent).toBe('const x = 1')
+  expect(message.querySelector('.chat-markdown a')?.getAttribute('href')).toBe('https://example.com')
+
+  const toggle = message.querySelector<HTMLButtonElement>('.chat-message-raw')!
+  expect(toggle.textContent).toBe(zh.showRaw)
+  expect(toggle.getAttribute('aria-pressed')).toBe('false')
+  await act(async () => { toggle.click() })
+
+  expect(message.querySelector('.chat-markdown')).toBeNull()
+  expect(message.querySelector('.chat-bubble')?.textContent).toBe(text)
+  const back = message.querySelector<HTMLButtonElement>('.chat-message-raw')!
+  expect(back.textContent).toBe(zh.showRendered)
+  expect(back.getAttribute('aria-pressed')).toBe('true')
+
+  await act(async () => { back.click() })
+  expect(message.querySelector('.chat-markdown strong')?.textContent).toBe('bold')
+  view.dispose()
+})
+
+it('leaves user text raw and offers no render toggle on it', async () => {
+  const view = await render({ ...general, messages: [
+    { id: 'm5', role: 'user', text: '**not rendered**', at, tags: [] },
+  ] })
+  const message = view.container.querySelector('[data-message-id="m5"]')!
+  expect(message.querySelector('.chat-markdown')).toBeNull()
+  expect(message.querySelector('.chat-bubble')?.textContent).toBe('**not rendered**')
+  expect(message.querySelector('.chat-message-raw')).toBeNull()
+  view.dispose()
+})

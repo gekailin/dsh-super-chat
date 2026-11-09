@@ -23,6 +23,7 @@
 | `src/client/index.tsx` | browser | 注册 `main` 面板、词典和 `sidebar.panellist` 入口；在 Superagent 行标题右侧挂 Super Chat 快捷入口，找不到时保留独立入口。 |
 | `src/client/workspace-group.ts` | browser | 包装 Workspace 快照，把工单 Workspace 折进 Superagent 分组。 |
 | `src/client/chat.tsx` | browser | 最新一页优先、上滚加载更早分页、`<无主题>` 视图、标签输入、新建主题、逐条消息的标签编辑、停止和轮询。 |
+| `src/client/markdown.tsx` | browser | agent 回复的安全 Markdown 到 React 渲染；覆盖常见聊天语法，不解析用户写入的 HTML。 |
 | `src/client/topics.ts` | browser | 标签名合并、输入解析和消息标签展示辅助。 |
 | `src/client/text.ts` | browser | 消息元数据的相对时间与简短日期格式化。 |
 | `src/client/locales.ts` | browser | 面板与微信弹窗的简体中文、英文词典。 |
@@ -101,6 +102,10 @@ ChatTransportRouter
 ### 全部消息与 `<无主题>`
 
 面板的主视图叫「全部消息」，按最新一页优先读取：打开面板直接停在最新消息的底部，不重放整条流；滚到顶部时用 `before` 读取上一页。侧栏的「`<无主题>`」不是主题，也不是独立存储或分发分区：它只是在读取时把同一条流过滤为没有标签的消息，因此分页和计数都不复制消息。侧栏显示未打标签消息的总数；未打标签的消息仍然走 `super-chat:general`，由 Superagent 判断。轮询只把最新一页合并进已加载的流，不重排已加载消息；除非读者已在底部，否则不改变滚动位置。
+
+### Markdown 回复
+
+agent 消息在浏览器里按 Markdown 渲染。解析器覆盖标题、段落、围栏代码与行内代码、有序/无序列表（支持一层嵌套）、引用、分隔线、强调、链接和裸 URL；它直接生成 React 元素而不是 HTML 字符串，所以用户写入的 HTML 只作为文本显示，只有 `http:`、`https:` 和 `mailto:` 目标会变成链接。用户消息和所有原文视图保持原始文本不变。每条 agent 消息都有「原文」按钮，切换后显示原始 Markdown，再点「渲染」切回。解析器位于浏览器半边，不增加运行时依赖。
 
 ### 自动打标签
 

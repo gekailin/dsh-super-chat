@@ -23,6 +23,7 @@ This document describes the single chat stream, topic tags, SQLite storage, supe
 | `src/client/index.tsx` | browser | Registers the `main` panel, dictionaries and the `sidebar.panellist` entry; mounts the Super Chat shortcut at the right of the Superagent row, keeping a standalone entry as fallback. |
 | `src/client/workspace-group.ts` | browser | Wraps the Workspace snapshot to fold ticket Workspaces into the Superagent group. |
 | `src/client/chat.tsx` | browser | Newest-page paging with scroll-up for older pages, the `<No topic>` view, tag input, new topics, per-message tag editing, stop and polling. |
+| `src/client/markdown.tsx` | browser | Safe Markdown-to-React rendering for agent replies; the parser covers common chat syntax and never interprets authored HTML. |
 | `src/client/topics.ts` | browser | Tag-name merging, input parsing and message-tag display helpers. |
 | `src/client/text.ts` | browser | Relative and short-date timestamp formatting for message metadata. |
 | `src/client/locales.ts` | browser | Simplified Chinese and English dictionaries for the panel and WeChat dialog. |
@@ -101,6 +102,10 @@ ChatTransportRouter
 ### All messages and `<No topic>`
 
 The panel's main view is **All messages**, which reads the chat stream newest-page first: opening the panel shows the latest messages at the bottom without replaying the stream, and scrolling to the top fetches the previous page with `before`. The sidebar's **`<No topic>`** entry is neither a topic nor a separate storage or dispatch partition: it is the same stream filtered at read time to messages without tags, so it pages and counts without copying messages. Its sidebar count is the total untagged count, and untagged messages still use `super-chat:general` for Superagent to decide. Polling merges only the newest page into the loaded stream; it never reorders the loaded messages, and it keeps the reader's position unless they are at the bottom.
+
+### Markdown replies
+
+Assistant messages are rendered as Markdown in the browser. The parser covers headings, paragraphs, fenced and inline code, ordered and unordered lists (including one nested level), block quotes, horizontal rules, emphasis, links and bare URLs. It builds React elements rather than an HTML string, so authored HTML is shown as literal text and only `http:`, `https:` and `mailto:` link destinations become anchors. User messages and every raw view keep the authored text unchanged. Each assistant message has a **Raw** button; toggling it shows the original Markdown and a **Rendered** button switches back. The parser is local to the browser half and adds no runtime dependency.
 
 ### Auto-tagging
 

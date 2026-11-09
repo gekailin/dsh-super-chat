@@ -29,6 +29,7 @@ The root plugin and the separately installed `dsh-superagent-prototype` are inde
 - **Topics are dispatch cues**: for a tagged message the first tag becomes the `super-chat` dispatch thread; untagged messages go to `general` and Superagent decides. Tags never force the outcome.
 - **Auto-tagging**: the general chat's header labels untagged messages with existing topics through the profile's default model; only empty tags are filled, agent replies inherit them, and no topics are created.
 - **Manual tag editing**: each message's tag row can add or remove tags and save; only that message changes, a new name creates a topic, and no work is dispatched.
+- **Markdown replies**: agent replies render common Markdown (headings, lists, quotes, links, fenced and inline code); each reply has a **Raw** button that switches it back to the original text. User messages stay as authored.
 - **Superagent Tickets**: acknowledgements, answers and results come back with their tags. A chat-only prototype with no GitHub repository or CLI can still take work.
 - **Workspace grouping**: with the prototype installed, the orchestrator's Workspace and each ticket worker's Workspace appear as one **Superagent** group with the orchestrator pinned on top. The merge is presentation-only and does not move a Session's working directory.
 - **SQLite**: messages, topics and message-topic links live in indexed tables; an old `chat.json` is migrated once.
