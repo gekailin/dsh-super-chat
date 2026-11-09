@@ -171,7 +171,7 @@ function inlineNodes(text: string): ReactNode[] {
 }
 
 /** Render one Markdown block stream; `lines` are authored lines without a trailing newline. */
-export function renderBlocks(lines: readonly string[]): ReactNode[] {
+function renderBlocks(lines: readonly string[]): ReactNode[] {
   const nodes: ReactNode[] = []
   let index = 0
   while (index < lines.length) {
@@ -203,7 +203,7 @@ export function renderBlocks(lines: readonly string[]): ReactNode[] {
     if (heading) {
       const level = Math.min(6, heading[1]!.length)
       const content = inlineNodes(heading[2] ?? '')
-      const Tag = `h${level}` as 'h1'
+      const Tag = `h${level}` as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
       nodes.push(<Tag key={`heading${nodes.length}`} className="chat-md-heading">{content}</Tag>)
       index += 1
       continue
