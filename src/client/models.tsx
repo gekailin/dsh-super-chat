@@ -120,6 +120,11 @@ export function ModelSettingsDialog({ t, onClose }: { t: T; onClose: () => void 
   const completeDraft = complete(draft.orchestrator) && complete(draft.worker)
   const dirty = !!view && (!sameRoleModel(modelOf(draft.orchestrator), view.orchestrator)
     || !sameRoleModel(modelOf(draft.worker), view.worker))
+  const change = (role: ModelRole, next: Draft): void => {
+    setDraft(previous => ({ ...previous, [role]: next }))
+    setNote(undefined)
+    setError(undefined)
+  }
 
   const save = async (): Promise<void> => {
     if (!view || !available || saving || !completeDraft) return
@@ -163,10 +168,10 @@ export function ModelSettingsDialog({ t, onClose }: { t: T; onClose: () => void 
             {view.default && <p className="chat-models-hint">{t('modelsDefault', { model: modelLabel(view.default) })}</p>}
             <RoleField label={t('modelOrchestrator')} hint={t('modelOrchestratorHint')}
               value={draft.orchestrator} groups={view.groups} t={t}
-              onChange={next => setDraft(previous => ({ ...previous, orchestrator: next }))} />
+              onChange={next => change('orchestrator', next)} />
             <RoleField label={t('modelWorker')} hint={t('modelWorkerHint')}
               value={draft.worker} groups={view.groups} t={t}
-              onChange={next => setDraft(previous => ({ ...previous, worker: next }))} />
+              onChange={next => change('worker', next)} />
             <p className="chat-models-hint">{t('modelsDirectiveHint')}</p>
             {(view.failures ?? []).length > 0 && <p className="chat-models-hint">
               {t('modelsFailures', { names: view.failures.map(failure => failure.name).join(t('listSeparator')) })}
