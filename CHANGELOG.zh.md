@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-- agent 回复支持常见 Markdown 渲染（标题、列表、引用、链接、围栏代码和行内代码）；每条回复有「原文」按钮可切回原始文本，用户消息保持原文。
+- agent 回复支持常见 Markdown 渲染（标题、列表、引用、链接、围栏代码和行内代码）；每条回复的气泡角落有「原文」按钮可切回原始文本，用户消息保持原文。
 - 侧栏新增「模型」对话框：从 profile 模型目录选择 orchestrator 模型和新 worker 的默认模型，复用 prototype 的 `eval.model` / `executor.model` 设置和保存历史；保存 orchestrator 模型时也会切换当前 orchestrator Session。
 - 聊天消息可以只为一个新 worker 指定模型：`用 gemini-4-argon 模型启动一个新 worker 做…` 或 `use gemini-4-argon model to start a new worker for…`。模型在存储消息前解析，并在 worker Session 第一次请求前应用；生效后面板会显示一条短提示。
 - worker 模型指令使用 DSH 公开的 `agent/created` 事件和 prototype 文档化的 `worker-<工单 id>` Session 命名；不修改 prototype 文件。未知或有歧义的模型名会报错且不发送消息；指令只影响新建的 worker。

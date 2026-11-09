@@ -4,7 +4,7 @@ English | [简体中文](CHANGELOG.zh.md)
 
 ## Unreleased
 
-- Agent replies render common Markdown (headings, lists, quotes, links, fenced and inline code); each reply has a **Raw** button to switch back to the original text, and user messages stay as authored.
+- Agent replies render common Markdown (headings, lists, quotes, links, fenced and inline code); each reply has a **Raw** button in its bubble's corner to switch back to the original text, and user messages stay as authored.
 - The sidebar gains a **Models** dialog: it chooses the orchestrator model and the default model for new workers from the profile catalog, sharing the prototype's `eval.model`/`executor.model` settings and save history. Saving the orchestrator model also switches the live orchestrator Session.
 - Chat messages can ask for one new worker's model: `用 gemini-4-argon 模型启动一个新 worker 做…` or `use gemini-4-argon model to start a new worker for…`. The model is resolved before the message is stored and applied to that worker Session before its first request; the panel shows a short note once it is in place.
 - Worker-model directives use DSH's public `agent/created` event and the prototype's documented `worker-<ticket id>` Session naming; no prototype file is modified. Unknown or ambiguous model names are reported without sending the message, and a directive affects only a newly created worker.
